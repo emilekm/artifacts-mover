@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-type SCPCofig struct {
+type SCPConfig struct {
 }
 
 type HTTPSConfig struct {
@@ -16,7 +16,7 @@ type SFTPConfig struct {
 }
 
 type UploadConfig struct {
-	SCP   *SCPCofig
+	SCP   *SCPConfig
 	HTTPS *HTTPSConfig
 	SFTP  *SFTPConfig
 }
@@ -34,10 +34,10 @@ type Server struct {
 }
 
 type Config struct {
-	Servers []Server `yaml:"servers"`
+	Servers []*Server `yaml:"servers"`
 }
 
-func newConfig(filename string) (*Config, error) {
+func New(filename string) (*Config, error) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err

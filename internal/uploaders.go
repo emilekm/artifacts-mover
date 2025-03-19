@@ -12,6 +12,7 @@ import (
 
 	"github.com/emilekm/artifacts-mover/internal/config"
 	"github.com/povsister/scp"
+	"golang.org/x/crypto/ssh"
 )
 
 type Uploader interface {
@@ -19,11 +20,12 @@ type Uploader interface {
 }
 
 type SCPUploader struct {
-	queue  *Queue
-	client *scp.Client
+	queue *Queue
 
 	basePath string
 	subPaths map[config.ArtifactType]string
+	address  string
+	scpConf  *ssh.ClientConfig
 }
 
 func NewSCPUploader(
@@ -41,26 +43,24 @@ func NewSCPUploader(
 		return nil, err
 	}
 
-	scpClient, err := scp.NewClient(conf.Address, scpConf, &scp.ClientOption{})
-	if err != nil {
-		return nil, err
-	}
-
 	subPaths := make(map[config.ArtifactType]string)
 	for typ, loc := range artifactsConf {
 		subPaths[typ] = loc.SubPath
 	}
 
-	return &SCPUploader{
+	u := &SCPUploader{
 		queue:    queue,
-		client:   scpClient,
 		basePath: conf.BasePath,
 		subPaths: subPaths,
-	}, nil
-}
+		scpConf:  scpConf,
+	}
 
-func (u *SCPUploader) Close() {
-	u.client.Close()
+	_, err = u.client()
+	if err != nil {
+		return nil, err
+	}
+
+	return u, nil
 }
 
 func (u *SCPUploader) Upload(round Round) {
@@ -70,8 +70,14 @@ func (u *SCPUploader) Upload(round Round) {
 }
 
 func (u *SCPUploader) upload(round Round) {
+	client, err := u.client()
+	if err != nil {
+		slog.Error("failed to create scp client", "err", err)
+		return
+	}
+
 	for typ, path := range round {
-		err := u.client.CopyFileToRemote(
+		err := client.CopyFileToRemote(
 			path,
 			filepath.Join(
 				u.basePath,
@@ -84,6 +90,10 @@ func (u *SCPUploader) upload(round Round) {
 			slog.Error("failed to upload file", "path", path, "err", err)
 		}
 	}
+}
+
+func (u *SCPUploader) client() (*scp.Client, error) {
+	return scp.NewClient(u.address, u.scpConf, &scp.ClientOption{})
 }
 
 type HTTPSUploader struct {

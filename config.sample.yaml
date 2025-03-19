@@ -1,0 +1,35 @@
+servers:
+  my-server:
+    types:
+      bf2demo:
+        dir: /home/me/my-server/bf2demos/
+      prdemo:
+        dir: /home/me/my-server/prdemos/
+      summary:
+        dir: /home/me/my-server/summaries/
+
+    upload:
+      scp:
+        address: someserver.com
+        username: remoteuser
+        privateKeyFile: /home/me/.ssh/id_rsa
+        basePath: /var/www/my-server
+
+  my-server-2:
+    types:
+      bf2demo:
+        dir: /home/me/my-server-2/bf2demos/
+      prdemo:
+        dir: /home/me/my-server-2/prdemos/
+      summary:
+        dir: /home/me/my-serve-2r/summaries/
+
+    upload:
+      https:
+        url: someserver.com/upload
+        auth:
+          basic:
+            username: user
+            password: password
+          headers:
+            X-Auth-Token: token

@@ -6,35 +6,50 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+type BasicAuth struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+}
+
 type SCPConfig struct {
+	Address        string `yaml:"address"`
+	Username       string `yaml:"username"`
+	PrivateKeyFile string `yaml:"privateKeyFile,omitempty"`
+	BasePath       string `yaml:"basePath"`
+}
+
+type HTTPSAuth struct {
+	Basic   *BasicAuth        `yaml:"basic,omitempty"`
+	Headers map[string]string `yaml:"header,omitempty"`
 }
 
 type HTTPSConfig struct {
+	URL  string    `yaml:"url"`
+	Auth HTTPSAuth `yaml:"auth"`
 }
 
-type SFTPConfig struct {
-}
+// TODO: Implement SFTP
+// type SFTPConfig struct {
+// }
 
 type UploadConfig struct {
-	SCP   *SCPConfig
-	HTTPS *HTTPSConfig
-	SFTP  *SFTPConfig
+	SCP   *SCPConfig   `yaml:"scp,omitempty"`
+	HTTPS *HTTPSConfig `yaml:"https,omitempty"`
+	// SFTP  *SFTPConfig  `yaml:"sftp,omitempty"`
 }
 
 type Location struct {
-	Path   string
-	SubDir string
+	Directory string `yaml:"dir"`
+	SubPath   string `yaml:"subPath"`
 }
 
 type Server struct {
-	Upload    UploadConfig `yaml:"upload"`
-	BF2Demos  Location
-	PRDemos   Location
-	Summaries Location
+	Upload    UploadConfig              `yaml:"upload"`
+	Artifacts map[ArtifactType]Location `yaml:"types"`
 }
 
 type Config struct {
-	Servers []*Server `yaml:"servers"`
+	Servers map[string]*Server `yaml:"servers"`
 }
 
 func New(filename string) (*Config, error) {

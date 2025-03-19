@@ -26,14 +26,29 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	state, err := internal.OpenState(stateFilename)
-	if err != nil {
-		return err
-	}
+	w := internal.NewWatcher()
+	q := internal.NewQueue()
 
-	w, err := internal.NewWatcher(conf, state)
-	if err != nil {
-		return err
+	for _, server := range conf.Servers {
+		var uploader internal.Uploader
+		if server.Upload.SCP != nil {
+			uploader, err = internal.NewSCPUploader(q, *server.Upload.SCP, server.Artifacts)
+			if err != nil {
+				return err
+			}
+		} else if server.Upload.HTTPS != nil {
+			uploader = internal.NewHTTPSUploader(q, *server.Upload.HTTPS, server.Artifacts)
+		}
+
+		handler := internal.NewHandler(server.Artifacts, uploader)
+
+		paths := make([]string, 0, len(server.Artifacts))
+
+		for _, loc := range server.Artifacts {
+			paths = append(paths, loc.Directory)
+		}
+
+		w.Register(paths, handler)
 	}
 
 	return w.Watch(ctx)

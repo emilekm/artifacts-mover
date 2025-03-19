@@ -43,9 +43,11 @@ type Location struct {
 	SubPath   string `yaml:"subPath"`
 }
 
+type ArtifactsConfig map[ArtifactType]Location
+
 type Server struct {
-	Upload    UploadConfig              `yaml:"upload"`
-	Artifacts map[ArtifactType]Location `yaml:"types"`
+	Upload    UploadConfig    `yaml:"upload"`
+	Artifacts ArtifactsConfig `yaml:"types"`
 }
 
 type Config struct {

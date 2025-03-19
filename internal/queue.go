@@ -2,14 +2,12 @@ package internal
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 )
 
 type queueItem struct {
-	Next   *queueItem
-	Server *Server
-	Round  *Round
+	Next *queueItem
+	Fn   func()
 }
 
 type Queue struct {
@@ -18,10 +16,13 @@ type Queue struct {
 	cancel context.CancelFunc
 }
 
-func (q *Queue) Add(server *Server, round *Round) {
+func NewQueue() *Queue {
+	return &Queue{}
+}
+
+func (q *Queue) Add(fn func()) {
 	newItem := &queueItem{
-		Server: server,
-		Round:  round,
+		Fn: fn,
 	}
 
 	q.mutex.Lock()
@@ -62,10 +63,7 @@ func (q *Queue) Start(ctx context.Context) {
 			}
 			q.mutex.Unlock()
 
-			err := q.first.Server.Upload(q.first.Round)
-			if err != nil {
-				slog.Error("upload error", "error", err)
-			}
+			q.first.Fn()
 
 			q.mutex.Lock()
 			q.first = q.first.Next

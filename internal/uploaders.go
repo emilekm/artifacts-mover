@@ -3,7 +3,6 @@ package internal
 import (
 	"bytes"
 	"io"
-	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -15,61 +14,18 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-type Uploader interface {
-	Upload(Round)
-}
-
-func NewUploader(
-	queue *Queue,
-	conf config.UploadConfig,
-	artifactsConf config.ArtifactsConfig,
-) (Uploader, error) {
-	if conf.SCP != nil {
-		return NewSCPUploader(queue, *conf.SCP, artifactsConf)
-	}
-
-	if conf.HTTPS != nil {
-		return NewHTTPSUploader(queue, *conf.HTTPS, artifactsConf), nil
-	}
-
-	return nil, nil
-}
-
-type uploader struct {
-	queue           *Queue
+type scpUploader struct {
 	artifactsConfig config.ArtifactsConfig
-}
-
-func (u *uploader) afterUpload(round Round) {
-	for typ, path := range round {
-		artifactConfig := u.artifactsConfig[typ]
-		if artifactConfig.MovePath != nil {
-			newPath := filepath.Join(*artifactConfig.MovePath, filepath.Base(path))
-			err := os.Rename(path, newPath)
-			if err != nil {
-				slog.Error("failed to move file", "path", path, "err", err)
-			}
-		} else {
-			if err := os.Remove(path); err != nil {
-				slog.Error("failed to remove file", "path", path, "err", err)
-			}
-		}
-	}
-}
-
-type SCPUploader struct {
-	uploader
 
 	basePath string
 	address  string
 	scpConf  *ssh.ClientConfig
 }
 
-func NewSCPUploader(
-	queue *Queue,
+func newSCPUploader(
 	conf config.SCPConfig,
 	artifactsConfig config.ArtifactsConfig,
-) (*SCPUploader, error) {
+) (*scpUploader, error) {
 	privKey, err := os.ReadFile(conf.PrivateKeyFile)
 	if err != nil {
 		return nil, err
@@ -80,13 +36,10 @@ func NewSCPUploader(
 		return nil, err
 	}
 
-	u := &SCPUploader{
-		uploader: uploader{
-			queue:           queue,
-			artifactsConfig: artifactsConfig,
-		},
-		basePath: conf.BasePath,
-		scpConf:  scpConf,
+	u := &scpUploader{
+		artifactsConfig: artifactsConfig,
+		basePath:        conf.BasePath,
+		scpConf:         scpConf,
 	}
 
 	_, err = u.client()
@@ -97,17 +50,10 @@ func NewSCPUploader(
 	return u, nil
 }
 
-func (u *SCPUploader) Upload(round Round) {
-	u.queue.Add(func() {
-		u.upload(round)
-	})
-}
-
-func (u *SCPUploader) upload(round Round) {
+func (u *scpUploader) Upload(round Round) error {
 	client, err := u.client()
 	if err != nil {
-		slog.Error("failed to create scp client", "err", err)
-		return
+		return err
 	}
 
 	for typ, path := range round {
@@ -117,59 +63,49 @@ func (u *SCPUploader) upload(round Round) {
 			&scp.FileTransferOption{},
 		)
 		if err != nil {
-			slog.Error("failed to upload file", "path", path, "err", err)
+			return err
 		}
 	}
 
-	u.afterUpload(round)
+	return nil
 }
 
-func (u *SCPUploader) fullUploadPath(typ config.ArtifactType, path string) string {
+func (u *scpUploader) fullUploadPath(typ config.ArtifactType, path string) string {
 	filename := filepath.Base(path)
 	return filepath.Join(u.basePath, u.artifactsConfig[typ].UploadPath, filename)
 }
 
-func (u *SCPUploader) client() (*scp.Client, error) {
+func (u *scpUploader) client() (*scp.Client, error) {
 	return scp.NewClient(u.address, u.scpConf, &scp.ClientOption{})
 }
 
-type HTTPSUploader struct {
-	uploader
-	conf config.HTTPSConfig
+type httpsUploader struct {
+	artifactsConfig config.ArtifactsConfig
+	conf            config.HTTPSConfig
 }
 
-func NewHTTPSUploader(
-	queue *Queue,
+func newHTTPSUploader(
 	conf config.HTTPSConfig,
 	artifactsConf config.ArtifactsConfig,
-) *HTTPSUploader {
-	return &HTTPSUploader{
-		uploader: uploader{
-			queue:           queue,
-			artifactsConfig: artifactsConf,
-		},
-		conf: conf,
+) *httpsUploader {
+	return &httpsUploader{
+		artifactsConfig: artifactsConf,
+		conf:            conf,
 	}
 }
 
-func (u *HTTPSUploader) Upload(round Round) {
-	u.queue.Add(func() {
-		u.upload(round)
-	})
-}
-
-func (u *HTTPSUploader) upload(round Round) {
+func (u *httpsUploader) Upload(round Round) error {
 	for typ, filename := range round {
 		err := u.uploadFile(typ, filename)
 		if err != nil {
-			slog.Error("failed to upload file", "path", filename, "err", err)
+			return err
 		}
 	}
 
-	u.afterUpload(round)
+	return nil
 }
 
-func (u *HTTPSUploader) uploadFile(typ config.ArtifactType, filename string) error {
+func (u *httpsUploader) uploadFile(typ config.ArtifactType, filename string) error {
 	buf := &bytes.Buffer{}
 
 	writer := multipart.NewWriter(buf)

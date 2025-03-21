@@ -7,7 +7,8 @@ import (
 
 type queueItem struct {
 	Next *queueItem
-	Fn   func()
+	Ch   chan error
+	Fn   func() error
 }
 
 type Queue struct {
@@ -20,9 +21,10 @@ func NewQueue() *Queue {
 	return &Queue{}
 }
 
-func (q *Queue) Add(fn func()) {
+func (q *Queue) Add(fn func() error) chan error {
 	newItem := &queueItem{
 		Fn: fn,
+		Ch: make(chan error, 1),
 	}
 
 	q.mutex.Lock()
@@ -46,6 +48,8 @@ func (q *Queue) Add(fn func()) {
 		q.cancel = cancel
 		go q.Start(ctx)
 	}
+
+	return newItem.Ch
 }
 
 func (q *Queue) Start(ctx context.Context) {
@@ -63,7 +67,11 @@ func (q *Queue) Start(ctx context.Context) {
 			}
 			q.mutex.Unlock()
 
-			q.first.Fn()
+			err := q.first.Fn()
+			if err != nil {
+				q.first.Ch <- err
+			}
+			close(q.first.Ch)
 
 			q.mutex.Lock()
 			q.first = q.first.Next

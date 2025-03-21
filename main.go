@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/emilekm/artifacts-mover/internal/config"
@@ -10,7 +12,6 @@ import (
 
 const (
 	configFilename = "config.yaml"
-	stateFilename  = "state.json"
 )
 
 func main() {
@@ -26,11 +27,21 @@ func run(ctx context.Context) error {
 		return err
 	}
 
+	failedPath := conf.FailedUploadPath
+	if failedPath == "" {
+		failedPath = "./failed"
+	}
+
 	w := internal.NewWatcher()
 	q := internal.NewQueue()
 
-	for _, server := range conf.Servers {
-		uploader, err := internal.NewUploader(q, server.Upload, server.Artifacts)
+	for name, server := range conf.Servers {
+		svFailedPath := filepath.Join(failedPath, name)
+		if err := os.MkdirAll(svFailedPath, 0755); err != nil {
+			return err
+		}
+
+		uploader, err := internal.NewUploader(q, server.Upload, server.Artifacts, svFailedPath)
 		if err != nil {
 			return err
 		}

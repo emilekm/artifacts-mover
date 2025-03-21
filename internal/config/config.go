@@ -52,7 +52,8 @@ type Server struct {
 }
 
 type Config struct {
-	Servers map[string]*Server `yaml:"servers"`
+	FailedUploadPath string             `yaml:"failedUploadPath"`
+	Servers          map[string]*Server `yaml:"servers"`
 }
 
 func New(filename string) (*Config, error) {

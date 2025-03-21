@@ -14,13 +14,19 @@ type uploader interface {
 }
 
 type Uploader struct {
-	artifactsConfig config.ArtifactsConfig
-	queue           *Queue
+	artifactsConfig  config.ArtifactsConfig
+	queue            *Queue
+	failedUploadPath string
 
 	uploaders []uploader
 }
 
-func NewUploader(queue *Queue, conf config.UploadConfig, artifactsConfing config.ArtifactsConfig) (*Uploader, error) {
+func NewUploader(
+	queue *Queue,
+	conf config.UploadConfig,
+	artifactsConfing config.ArtifactsConfig,
+	failedUploadPath string,
+) (*Uploader, error) {
 	uploaders := make([]uploader, 0)
 	if conf.SCP != nil {
 		uploader, err := newSCPUploader(*conf.SCP, artifactsConfing)
@@ -35,9 +41,10 @@ func NewUploader(queue *Queue, conf config.UploadConfig, artifactsConfing config
 	}
 
 	return &Uploader{
-		artifactsConfig: artifactsConfing,
-		queue:           queue,
-		uploaders:       uploaders,
+		artifactsConfig:  artifactsConfing,
+		queue:            queue,
+		failedUploadPath: failedUploadPath,
+		uploaders:        uploaders,
 	}, nil
 }
 
@@ -57,7 +64,7 @@ func (u *Uploader) Upload(round Round) {
 		err := wg.Wait()
 		if err != nil {
 			slog.Error("failed to upload round", "err", err)
-			u.backupRound(round)
+			u.backupFailures(round)
 			return
 		}
 
@@ -65,7 +72,19 @@ func (u *Uploader) Upload(round Round) {
 	}()
 }
 
-func (u *Uploader) backupRound(round Round) {
+func (u *Uploader) backupFailures(round Round) {
+	for typ, path := range round {
+		failedDir := filepath.Join(u.failedUploadPath, typ.String())
+		if err := os.Mkdir(failedDir, 0755); err != nil {
+			slog.Error("failed to create directory", "path", failedDir, "err", err)
+			return
+		}
+
+		newPath := filepath.Join(failedDir, filepath.Base(path))
+		if err := os.Rename(path, newPath); err != nil {
+			slog.Error("failed to move file", "src", path, "dst", newPath, "err", err)
+		}
+	}
 }
 
 func (u *Uploader) afterUpload(round Round) {

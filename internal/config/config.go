@@ -14,7 +14,7 @@ type BasicAuth struct {
 type SCPConfig struct {
 	Address        string `yaml:"address"`
 	Username       string `yaml:"username"`
-	PrivateKeyFile string `yaml:"privateKeyFile,omitempty"`
+	PrivateKeyFile string `yaml:"privateKeyFile"`
 	BasePath       string `yaml:"basePath"`
 }
 

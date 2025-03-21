@@ -35,13 +35,34 @@ func NewUploader(
 	return nil, nil
 }
 
-type SCPUploader struct {
-	queue *Queue
-
-	basePath        string
+type uploader struct {
+	queue           *Queue
 	artifactsConfig config.ArtifactsConfig
-	address         string
-	scpConf         *ssh.ClientConfig
+}
+
+func (u *uploader) afterUpload(round Round) {
+	for typ, path := range round {
+		artifactConfig := u.artifactsConfig[typ]
+		if artifactConfig.MovePath != nil {
+			newPath := filepath.Join(*artifactConfig.MovePath, filepath.Base(path))
+			err := os.Rename(path, newPath)
+			if err != nil {
+				slog.Error("failed to move file", "path", path, "err", err)
+			}
+		} else {
+			if err := os.Remove(path); err != nil {
+				slog.Error("failed to remove file", "path", path, "err", err)
+			}
+		}
+	}
+}
+
+type SCPUploader struct {
+	uploader
+
+	basePath string
+	address  string
+	scpConf  *ssh.ClientConfig
 }
 
 func NewSCPUploader(
@@ -60,10 +81,12 @@ func NewSCPUploader(
 	}
 
 	u := &SCPUploader{
-		queue:           queue,
-		basePath:        conf.BasePath,
-		artifactsConfig: artifactsConfig,
-		scpConf:         scpConf,
+		uploader: uploader{
+			queue:           queue,
+			artifactsConfig: artifactsConfig,
+		},
+		basePath: conf.BasePath,
+		scpConf:  scpConf,
 	}
 
 	_, err = u.client()
@@ -97,6 +120,8 @@ func (u *SCPUploader) upload(round Round) {
 			slog.Error("failed to upload file", "path", path, "err", err)
 		}
 	}
+
+	u.afterUpload(round)
 }
 
 func (u *SCPUploader) fullUploadPath(typ config.ArtifactType, path string) string {
@@ -109,9 +134,8 @@ func (u *SCPUploader) client() (*scp.Client, error) {
 }
 
 type HTTPSUploader struct {
-	queue    *Queue
-	conf     config.HTTPSConfig
-	subPaths map[config.ArtifactType]string
+	uploader
+	conf config.HTTPSConfig
 }
 
 func NewHTTPSUploader(
@@ -119,15 +143,12 @@ func NewHTTPSUploader(
 	conf config.HTTPSConfig,
 	artifactsConf config.ArtifactsConfig,
 ) *HTTPSUploader {
-	subPaths := make(map[config.ArtifactType]string)
-	for typ, loc := range artifactsConf {
-		subPaths[typ] = loc.UploadPath
-	}
-
 	return &HTTPSUploader{
-		queue:    queue,
-		conf:     conf,
-		subPaths: subPaths,
+		uploader: uploader{
+			queue:           queue,
+			artifactsConfig: artifactsConf,
+		},
+		conf: conf,
 	}
 }
 
@@ -144,6 +165,8 @@ func (u *HTTPSUploader) upload(round Round) {
 			slog.Error("failed to upload file", "path", filename, "err", err)
 		}
 	}
+
+	u.afterUpload(round)
 }
 
 func (u *HTTPSUploader) uploadFile(typ config.ArtifactType, filename string) error {
@@ -167,7 +190,7 @@ func (u *HTTPSUploader) uploadFile(typ config.ArtifactType, filename string) err
 		return err
 	}
 
-	uri, err := url.JoinPath(u.conf.URL, u.subPaths[typ])
+	uri, err := url.JoinPath(u.conf.URL, u.artifactsConfig[typ].UploadPath)
 	if err != nil {
 		return err
 	}

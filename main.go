@@ -30,14 +30,9 @@ func run(ctx context.Context) error {
 	q := internal.NewQueue()
 
 	for _, server := range conf.Servers {
-		var uploader internal.Uploader
-		if server.Upload.SCP != nil {
-			uploader, err = internal.NewSCPUploader(q, *server.Upload.SCP, server.Artifacts)
-			if err != nil {
-				return err
-			}
-		} else if server.Upload.HTTPS != nil {
-			uploader = internal.NewHTTPSUploader(q, *server.Upload.HTTPS, server.Artifacts)
+		uploader, err := internal.NewUploader(q, server.Upload, server.Artifacts)
+		if err != nil {
+			return err
 		}
 
 		handler := internal.NewHandler(server.Artifacts, uploader)

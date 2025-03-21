@@ -19,6 +19,22 @@ type Uploader interface {
 	Upload(Round)
 }
 
+func NewUploader(
+	queue *Queue,
+	conf config.UploadConfig,
+	artifactsConf config.ArtifactsConfig,
+) (Uploader, error) {
+	if conf.SCP != nil {
+		return NewSCPUploader(queue, *conf.SCP, artifactsConf)
+	}
+
+	if conf.HTTPS != nil {
+		return NewHTTPSUploader(queue, *conf.HTTPS, artifactsConf), nil
+	}
+
+	return nil, nil
+}
+
 type SCPUploader struct {
 	queue *Queue
 

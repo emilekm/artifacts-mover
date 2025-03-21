@@ -10,7 +10,7 @@ import (
 type Round map[config.ArtifactType]string
 
 type Handler struct {
-	pathToType  map[string]config.ArtifactType
+	locToType   map[string]config.ArtifactType
 	bf2DemoOnly bool
 	uploader    Uploader
 	typesCount  int
@@ -18,7 +18,7 @@ type Handler struct {
 	currentRound Round
 }
 
-func NewHandler(artifactConf config.ArtifactsConfig, uploader Uploader) *Handler {
+func NewHandler(uploader Uploader, artifactConf config.ArtifactsConfig) *Handler {
 	bf2DemoOnly := true
 	for typ := range artifactConf {
 		if typ != config.ArtifactTypeBF2Demo {
@@ -27,23 +27,23 @@ func NewHandler(artifactConf config.ArtifactsConfig, uploader Uploader) *Handler
 		}
 	}
 
-	pathToType := make(map[string]config.ArtifactType)
+	locToType := make(map[string]config.ArtifactType)
 	for typ, loc := range artifactConf {
-		pathToType[loc.Directory] = typ
+		locToType[filepath.Clean(loc.Location)] = typ
 	}
 
 	return &Handler{
-		pathToType:   pathToType,
+		locToType:    locToType,
 		bf2DemoOnly:  bf2DemoOnly,
 		uploader:     uploader,
-		typesCount:   len(pathToType),
+		typesCount:   len(locToType),
 		currentRound: make(Round),
 	}
 }
 
 func (h *Handler) OnFileCreate(path string) {
 	path = filepath.Clean(path)
-	typ, ok := h.pathToType[filepath.Dir(path)]
+	typ, ok := h.locToType[filepath.Dir(path)]
 	if !ok {
 		slog.Error("unknown path", "path", path)
 		return

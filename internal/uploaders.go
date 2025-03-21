@@ -38,16 +38,16 @@ func NewUploader(
 type SCPUploader struct {
 	queue *Queue
 
-	basePath string
-	subPaths map[config.ArtifactType]string
-	address  string
-	scpConf  *ssh.ClientConfig
+	basePath        string
+	artifactsConfig config.ArtifactsConfig
+	address         string
+	scpConf         *ssh.ClientConfig
 }
 
 func NewSCPUploader(
 	queue *Queue,
 	conf config.SCPConfig,
-	artifactsConf config.ArtifactsConfig,
+	artifactsConfig config.ArtifactsConfig,
 ) (*SCPUploader, error) {
 	privKey, err := os.ReadFile(conf.PrivateKeyFile)
 	if err != nil {
@@ -59,16 +59,11 @@ func NewSCPUploader(
 		return nil, err
 	}
 
-	subPaths := make(map[config.ArtifactType]string)
-	for typ, loc := range artifactsConf {
-		subPaths[typ] = loc.SubPath
-	}
-
 	u := &SCPUploader{
-		queue:    queue,
-		basePath: conf.BasePath,
-		subPaths: subPaths,
-		scpConf:  scpConf,
+		queue:           queue,
+		basePath:        conf.BasePath,
+		artifactsConfig: artifactsConfig,
+		scpConf:         scpConf,
 	}
 
 	_, err = u.client()
@@ -95,17 +90,18 @@ func (u *SCPUploader) upload(round Round) {
 	for typ, path := range round {
 		err := client.CopyFileToRemote(
 			path,
-			filepath.Join(
-				u.basePath,
-				u.subPaths[typ],
-				filepath.Base(path),
-			),
+			u.fullUploadPath(typ, path),
 			&scp.FileTransferOption{},
 		)
 		if err != nil {
 			slog.Error("failed to upload file", "path", path, "err", err)
 		}
 	}
+}
+
+func (u *SCPUploader) fullUploadPath(typ config.ArtifactType, path string) string {
+	filename := filepath.Base(path)
+	return filepath.Join(u.basePath, u.artifactsConfig[typ].UploadPath, filename)
 }
 
 func (u *SCPUploader) client() (*scp.Client, error) {
@@ -125,7 +121,7 @@ func NewHTTPSUploader(
 ) *HTTPSUploader {
 	subPaths := make(map[config.ArtifactType]string)
 	for typ, loc := range artifactsConf {
-		subPaths[typ] = loc.SubPath
+		subPaths[typ] = loc.UploadPath
 	}
 
 	return &HTTPSUploader{

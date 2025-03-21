@@ -35,12 +35,12 @@ func run(ctx context.Context) error {
 			return err
 		}
 
-		handler := internal.NewHandler(server.Artifacts, uploader)
+		handler := internal.NewHandler(uploader, server.Artifacts)
 
 		paths := make([]string, 0, len(server.Artifacts))
 
 		for _, loc := range server.Artifacts {
-			paths = append(paths, loc.Directory)
+			paths = append(paths, loc.Location)
 		}
 
 		w.Register(paths, handler)

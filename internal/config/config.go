@@ -39,8 +39,9 @@ type UploadConfig struct {
 }
 
 type Location struct {
-	Directory string `yaml:"dir"`
-	SubPath   string `yaml:"subPath"`
+	Location   string  `yaml:"location"`
+	UploadPath string  `yaml:"uploadPath"`
+	MovePath   *string `yaml:"movePath,omitempty"`
 }
 
 type ArtifactsConfig map[ArtifactType]Location

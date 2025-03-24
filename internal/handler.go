@@ -72,6 +72,6 @@ func (h *Handler) handleFile(path string, typ config.ArtifactType) {
 }
 
 func (h *Handler) endCurrentRound() {
-	h.uploader.Upload(h.currentRound)
+	_ = h.uploader.Upload(h.currentRound)
 	h.currentRound = make(Round)
 }

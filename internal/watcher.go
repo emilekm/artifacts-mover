@@ -90,14 +90,19 @@ func (w *Watcher) handleOldFiles() error {
 			if len(allFiles[0]) > 0 {
 				typ := handler.LocToType[filepath.Dir(allFiles[0][0])]
 				if typ != config.ArtifactTypeBF2Demo {
+					replaced := false
 					for i, files := range allFiles[1:] {
 						if len(files) > 0 {
 							typ2 := handler.LocToType[filepath.Dir(allFiles[0][0])]
 							if typ2 == config.ArtifactTypeBF2Demo {
 								allFiles[0], allFiles[i+1] = allFiles[i+1], allFiles[0]
+								replaced = true
 								break
 							}
 						}
+					}
+					if replaced {
+						break
 					}
 				}
 			}

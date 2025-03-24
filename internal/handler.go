@@ -12,13 +12,13 @@ type Round map[config.ArtifactType]string
 type Handler struct {
 	LocToType   map[string]config.ArtifactType
 	bf2DemoOnly bool
-	uploader    *Uploader
+	uploader    Uploader
 	typesCount  int
 
 	currentRound Round
 }
 
-func NewHandler(uploader *Uploader, artifactConf config.ArtifactsConfig) *Handler {
+func NewHandler(uploader Uploader, artifactConf config.ArtifactsConfig) *Handler {
 	bf2DemoOnly := true
 	for typ := range artifactConf {
 		if typ != config.ArtifactTypeBF2Demo {

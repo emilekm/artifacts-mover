@@ -9,25 +9,25 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type uploader interface {
+type Uploader interface {
 	Upload(Round) error
 }
 
-type Uploader struct {
+type multiUploader struct {
 	artifactsConfig  config.ArtifactsConfig
 	queue            *Queue
 	failedUploadPath string
 
-	uploaders []uploader
+	uploaders []Uploader
 }
 
-func NewUploader(
+func NewMultiUploader(
 	queue *Queue,
 	conf config.UploadConfig,
 	artifactsConfing config.ArtifactsConfig,
 	failedUploadPath string,
-) (*Uploader, error) {
-	uploaders := make([]uploader, 0)
+) (*multiUploader, error) {
+	uploaders := make([]Uploader, 0)
 	if conf.SCP != nil {
 		uploader, err := newSCPUploader(*conf.SCP, artifactsConfing)
 		if err != nil {
@@ -40,7 +40,7 @@ func NewUploader(
 		uploaders = append(uploaders, newHTTPSUploader(*conf.HTTPS, artifactsConfing))
 	}
 
-	return &Uploader{
+	return &multiUploader{
 		artifactsConfig:  artifactsConfing,
 		queue:            queue,
 		failedUploadPath: failedUploadPath,
@@ -48,7 +48,7 @@ func NewUploader(
 	}, nil
 }
 
-func (u *Uploader) Upload(round Round) {
+func (u *multiUploader) Upload(round Round) error {
 	wg := errgroup.Group{}
 	for _, up := range u.uploaders {
 		errCh := u.queue.Add(func() error {
@@ -70,9 +70,11 @@ func (u *Uploader) Upload(round Round) {
 
 		u.afterUpload(round)
 	}()
+
+	return nil
 }
 
-func (u *Uploader) backupFailures(round Round) {
+func (u *multiUploader) backupFailures(round Round) {
 	for typ, path := range round {
 		failedDir := filepath.Join(u.failedUploadPath, typ.String())
 		if err := os.Mkdir(failedDir, 0755); err != nil {
@@ -87,7 +89,7 @@ func (u *Uploader) backupFailures(round Round) {
 	}
 }
 
-func (u *Uploader) afterUpload(round Round) {
+func (u *multiUploader) afterUpload(round Round) {
 	for typ, path := range round {
 		artifactConfig := u.artifactsConfig[typ]
 		if artifactConfig.MovePath != nil {

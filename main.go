@@ -41,7 +41,7 @@ func run(ctx context.Context) error {
 			return err
 		}
 
-		uploader, err := internal.NewUploader(q, server.Upload, server.Artifacts, svFailedPath)
+		uploader, err := internal.NewMultiUploader(q, server.Upload, server.Artifacts, svFailedPath)
 		if err != nil {
 			return err
 		}

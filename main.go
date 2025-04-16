@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,9 +11,7 @@ import (
 	"github.com/emilekm/artifacts-mover/internal/config"
 )
 
-const (
-	configFilename = "config.yaml"
-)
+var configPath = flag.String("config", "config.yaml", "path to config file")
 
 func main() {
 	ctx := context.Background()
@@ -22,7 +21,9 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	conf, err := config.New(configFilename)
+	flag.Parse()
+
+	conf, err := config.New(*configPath)
 	if err != nil {
 		return err
 	}

@@ -39,6 +39,7 @@ func newSCPUploader(
 	u := &scpUploader{
 		artifactsConfig: artifactsConfig,
 		basePath:        conf.BasePath,
+		address:         conf.Address,
 		scpConf:         scpConf,
 	}
 

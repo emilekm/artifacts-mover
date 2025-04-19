@@ -75,3 +75,35 @@ func (h *Handler) endCurrentRound() {
 	_ = h.uploader.Upload(h.currentRound)
 	h.currentRound = make(Round)
 }
+
+func (h *Handler) UploadOldFiles() error {
+	allFiles := make(map[config.ArtifactType][]string)
+
+	for path, typ := range h.LocToType {
+		var err error
+		allFiles[typ], err = filepath.Glob(filepath.Join(path, "*"))
+		if err != nil {
+			return err
+		}
+	}
+
+	// The number of files in each directory should be the same
+	// or the first directory should have more files than the others
+
+	maxLen := 0
+	for _, files := range allFiles {
+		if len(files) > maxLen {
+			maxLen = len(files)
+		}
+	}
+
+	for i := range maxLen {
+		for typ, files := range allFiles {
+			if len(files) > i {
+				h.handleFile(files[i], typ)
+			}
+		}
+	}
+
+	return nil
+}

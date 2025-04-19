@@ -49,6 +49,11 @@ func run(ctx context.Context) error {
 
 		handler := internal.NewHandler(uploader, server.Artifacts)
 
+		err = handler.UploadOldFiles()
+		if err != nil {
+			return err
+		}
+
 		paths := make([]string, 0, len(server.Artifacts))
 
 		for _, loc := range server.Artifacts {

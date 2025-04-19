@@ -49,7 +49,7 @@ func run(ctx context.Context) error {
 
 		locToType := make(map[string]config.ArtifactType)
 		for typ, loc := range server.Artifacts {
-			locToType[loc.Location] = typ
+			locToType[filepath.Clean(loc.Location)] = typ
 		}
 
 		handler := internal.NewHandler(uploader, locToType)

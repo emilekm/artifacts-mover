@@ -47,7 +47,12 @@ func run(ctx context.Context) error {
 			return err
 		}
 
-		handler := internal.NewHandler(uploader, server.Artifacts)
+		locToType := make(map[string]config.ArtifactType)
+		for typ, loc := range server.Artifacts {
+			locToType[loc.Location] = typ
+		}
+
+		handler := internal.NewHandler(uploader, locToType)
 
 		err = handler.UploadOldFiles()
 		if err != nil {

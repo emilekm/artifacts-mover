@@ -17,12 +17,7 @@ type Handler struct {
 	currentRound Round
 }
 
-func NewHandler(uploader Uploader, artifactConf config.ArtifactsConfig) *Handler {
-	locToType := make(map[string]config.ArtifactType)
-	for typ, loc := range artifactConf {
-		locToType[filepath.Clean(loc.Location)] = typ
-	}
-
+func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType) *Handler {
 	return &Handler{
 		locToTyp:     locToType,
 		uploader:     uploader,

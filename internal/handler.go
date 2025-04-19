@@ -11,8 +11,8 @@ type Round map[config.ArtifactType]string
 
 type Handler struct {
 	locToTyp   map[string]config.ArtifactType
-	uploader   Uploader
 	typesCount int
+	uploader uploader
 
 	currentRound Round
 }

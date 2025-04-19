@@ -9,7 +9,9 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type Uploader interface {
+//go:generate go run go.uber.org/mock/mockgen -source=./uploader.go -destination=./uploader_mock.go -package=internal uploader
+
+type uploader interface {
 	Upload(Round) error
 }
 
@@ -18,7 +20,7 @@ type multiUploader struct {
 	queue            *Queue
 	failedUploadPath string
 
-	uploaders []Uploader
+	uploaders []uploader
 }
 
 func NewMultiUploader(
@@ -27,7 +29,7 @@ func NewMultiUploader(
 	artifactsConfing config.ArtifactsConfig,
 	failedUploadPath string,
 ) (*multiUploader, error) {
-	uploaders := make([]Uploader, 0)
+	uploaders := make([]uploader, 0)
 	if conf.SCP != nil {
 		uploader, err := newSCPUploader(*conf.SCP, artifactsConfing)
 		if err != nil {

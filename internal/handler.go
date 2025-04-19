@@ -10,18 +10,28 @@ import (
 type Round map[config.ArtifactType]string
 
 type Handler struct {
-	locToTyp   map[string]config.ArtifactType
-	typesCount int
-	uploader uploader
+	locToTyp    map[string]config.ArtifactType
+	uploader    uploader
+	bf2DemoOnly bool
+	typesCount  int
 
 	currentRound Round
 }
 
-func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType) *Handler {
+func NewHandler(uploader uploader, locToType map[string]config.ArtifactType) *Handler {
+	bf2DemoOnly := true
+	for _, typ := range locToType {
+		if typ != config.ArtifactTypeBF2Demo {
+			bf2DemoOnly = false
+			break
+		}
+	}
+
 	return &Handler{
 		locToTyp:     locToType,
 		uploader:     uploader,
 		typesCount:   len(locToType),
+		bf2DemoOnly:  bf2DemoOnly,
 		currentRound: make(Round),
 	}
 }
@@ -37,42 +47,12 @@ func (h *Handler) OnFileCreate(path string) {
 	h.handleFile(path, typ)
 }
 
-// shoudlEndRound is a function that determines if the current round should end
-// It returns:
-// -1 if the round should end without incoming file;
-// 0 continue;
-// 1 if the round should end with the incoming file;
-// --
-// only bf2demo
-// upload previous file - aka upload when full
-// --
-// only others
-// upload if files overlap
-// upload when full with incoming
-// --
-// mixed
-// upload if files overlap - something bad happened
-// upload when full
-func (h *Handler) shouldEndRound(incomingType config.ArtifactType) int {
-	// Overlap check
-	if _, ok := h.currentRound[incomingType]; ok {
-		// We have all the files or something bad happened
-		return -1
-	}
-
-	if len(h.currentRound) == h.typesCount-1 {
-		// We have all but one file, so we can upload with it
-		return 1
-	}
-
-	return 0
-}
-
 func (h *Handler) handleFile(path string, typ config.ArtifactType) {
-	shoudlEnd := h.shouldEndRound(typ)
-	if shoudlEnd == -1 {
+	if _, ok := h.currentRound[typ]; ok {
 		h.endCurrentRound()
-	} else if shoudlEnd == 1 {
+	}
+
+	if !h.bf2DemoOnly && len(h.currentRound) == h.typesCount-1 {
 		h.currentRound[typ] = path
 		h.endCurrentRound()
 		return

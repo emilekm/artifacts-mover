@@ -23,10 +23,14 @@ func TestHandler(t *testing.T) {
 				m.EXPECT().Upload(Round{
 					config.ArtifactTypeBF2Demo: "bf2demos/file1",
 				})
+				m.EXPECT().Upload(Round{
+					config.ArtifactTypeBF2Demo: "bf2demos/file2",
+				})
 			},
 			files: []string{
 				"./bf2demos/file1",
 				"./bf2demos/file2",
+				"./bf2demos/file3",
 			},
 		},
 		{

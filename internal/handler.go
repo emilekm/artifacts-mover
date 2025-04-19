@@ -10,31 +10,21 @@ import (
 type Round map[config.ArtifactType]string
 
 type Handler struct {
-	LocToType   map[string]config.ArtifactType
-	bf2DemoOnly bool
-	uploader    Uploader
-	typesCount  int
+	locToTyp   map[string]config.ArtifactType
+	uploader   Uploader
+	typesCount int
 
 	currentRound Round
 }
 
 func NewHandler(uploader Uploader, artifactConf config.ArtifactsConfig) *Handler {
-	bf2DemoOnly := true
-	for typ := range artifactConf {
-		if typ != config.ArtifactTypeBF2Demo {
-			bf2DemoOnly = false
-			break
-		}
-	}
-
 	locToType := make(map[string]config.ArtifactType)
 	for typ, loc := range artifactConf {
 		locToType[filepath.Clean(loc.Location)] = typ
 	}
 
 	return &Handler{
-		LocToType:    locToType,
-		bf2DemoOnly:  bf2DemoOnly,
+		locToTyp:     locToType,
 		uploader:     uploader,
 		typesCount:   len(locToType),
 		currentRound: make(Round),
@@ -43,7 +33,7 @@ func NewHandler(uploader Uploader, artifactConf config.ArtifactsConfig) *Handler
 
 func (h *Handler) OnFileCreate(path string) {
 	path = filepath.Clean(path)
-	typ, ok := h.LocToType[filepath.Dir(path)]
+	typ, ok := h.locToTyp[filepath.Dir(path)]
 	if !ok {
 		slog.Error("unknown path", "path", path)
 		return
@@ -52,23 +42,48 @@ func (h *Handler) OnFileCreate(path string) {
 	h.handleFile(path, typ)
 }
 
-func (h *Handler) handleFile(path string, typ config.ArtifactType) {
-	if len(h.currentRound) == h.typesCount {
-		// This handles the case when we only have bf2demo files.
-		h.endCurrentRound()
+// shoudlEndRound is a function that determines if the current round should end
+// It returns:
+// -1 if the round should end without incoming file;
+// 0 continue;
+// 1 if the round should end with the incoming file;
+// --
+// only bf2demo
+// upload previous file - aka upload when full
+// --
+// only others
+// upload if files overlap
+// upload when full with incoming
+// --
+// mixed
+// upload if files overlap - something bad happened
+// upload when full
+func (h *Handler) shouldEndRound(incomingType config.ArtifactType) int {
+	// Overlap check
+	if _, ok := h.currentRound[incomingType]; ok {
+		// We have all the files or something bad happened
+		return -1
 	}
 
-	h.currentRound[typ] = path
+	if len(h.currentRound) == h.typesCount-1 {
+		// We have all but one file, so we can upload with it
+		return 1
+	}
 
-	if h.bf2DemoOnly {
-		// We only have BF2Demo files, so we'll upload it when new file comes in.
+	return 0
+}
+
+func (h *Handler) handleFile(path string, typ config.ArtifactType) {
+	shoudlEnd := h.shouldEndRound(typ)
+	if shoudlEnd == -1 {
+		h.endCurrentRound()
+	} else if shoudlEnd == 1 {
+		h.currentRound[typ] = path
+		h.endCurrentRound()
 		return
 	}
 
-	if len(h.currentRound) == h.typesCount {
-		// This handles the case when we have mixed or no bf2demos.
-		h.endCurrentRound()
-	}
+	h.currentRound[typ] = path
 }
 
 func (h *Handler) endCurrentRound() {
@@ -79,7 +94,7 @@ func (h *Handler) endCurrentRound() {
 func (h *Handler) UploadOldFiles() error {
 	allFiles := make(map[config.ArtifactType][]string)
 
-	for path, typ := range h.LocToType {
+	for path, typ := range h.locToTyp {
 		var err error
 		allFiles[typ], err = filepath.Glob(filepath.Join(path, "*"))
 		if err != nil {

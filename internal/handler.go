@@ -77,9 +77,6 @@ func (h *Handler) UploadOldFiles() error {
 		}
 	}
 
-	// The number of files in each directory should be the same
-	// or the first directory should have more files than the others
-
 	maxLen := 0
 	for _, files := range allFiles {
 		if len(files) > maxLen {

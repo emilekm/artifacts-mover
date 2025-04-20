@@ -23,12 +23,12 @@ func TestHandler(t *testing.T) {
 				"bf2demos": config.ArtifactTypeBF2Demo,
 			},
 			expectedRounds: []Round{
-				{
+				prepareRound(map[config.ArtifactType]string{
 					config.ArtifactTypeBF2Demo: "bf2demos/file1",
-				},
-				{
+				}),
+				prepareRound(map[config.ArtifactType]string{
 					config.ArtifactTypeBF2Demo: "bf2demos/file2",
-				},
+				}),
 			},
 			files: []string{
 				"./bf2demos/file1",
@@ -44,16 +44,16 @@ func TestHandler(t *testing.T) {
 				"json":     config.ArtifactTypeSummary,
 			},
 			expectedRounds: []Round{
-				{
+				prepareRound(map[config.ArtifactType]string{
 					config.ArtifactTypeBF2Demo: "bf2demos/file1",
 					config.ArtifactTypePRDemo:  "prdemos/file1",
 					config.ArtifactTypeSummary: "json/file1",
-				},
-				{
+				}),
+				prepareRound(map[config.ArtifactType]string{
 					config.ArtifactTypeBF2Demo: "bf2demos/file2",
 					config.ArtifactTypePRDemo:  "prdemos/file2",
 					config.ArtifactTypeSummary: "json/file2",
-				},
+				}),
 			},
 			files: []string{
 				"./bf2demos/file1",
@@ -73,10 +73,10 @@ func TestHandler(t *testing.T) {
 				"json":     config.ArtifactTypeSummary,
 			},
 			expectedRounds: []Round{
-				{
+				prepareRound(map[config.ArtifactType]string{
 					config.ArtifactTypeBF2Demo: "bf2demos/file1",
 					config.ArtifactTypePRDemo:  "prdemos/file1",
-				},
+				}),
 			},
 			files: []string{
 				"./bf2demos/file1",
@@ -91,10 +91,10 @@ func TestHandler(t *testing.T) {
 				"json":    config.ArtifactTypeSummary,
 			},
 			expectedRounds: []Round{
-				{
+				prepareRound(map[config.ArtifactType]string{
 					config.ArtifactTypePRDemo:  "prdemos/file1",
 					config.ArtifactTypeSummary: "json/file1",
-				},
+				}),
 			},
 			files: []string{
 				"./prdemos/file1",
@@ -133,8 +133,9 @@ func TestHandler(t *testing.T) {
 
 				uploader := NewMockuploader(ctrl)
 				for _, round := range test.expectedRounds {
-					for typ, path := range round {
-						round[typ] = filepath.Join(dir, path)
+					for typ, artifact := range round {
+						artifact.Path = filepath.Join(dir, artifact.Path)
+						round[typ] = artifact
 					}
 					uploader.EXPECT().Upload(round)
 				}
@@ -155,4 +156,16 @@ func TestHandler(t *testing.T) {
 			})
 		}
 	})
+}
+
+func prepareRound(artifacts map[config.ArtifactType]string) Round {
+	round := make(Round)
+	for typ, path := range artifacts {
+		round[typ] = Artifact{
+			Path: path,
+			Type: typ,
+		}
+	}
+
+	return round
 }

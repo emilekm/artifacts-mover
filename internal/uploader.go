@@ -77,32 +77,32 @@ func (u *multiUploader) Upload(round Round) error {
 }
 
 func (u *multiUploader) backupFailures(round Round) {
-	for typ, path := range round {
+	for typ, artifacts := range round {
 		failedDir := filepath.Join(u.failedUploadPath, typ.String())
 		if err := os.Mkdir(failedDir, 0755); err != nil {
 			slog.Error("failed to create directory", "path", failedDir, "err", err)
 			return
 		}
 
-		newPath := filepath.Join(failedDir, filepath.Base(path))
-		if err := os.Rename(path, newPath); err != nil {
-			slog.Error("failed to move file", "src", path, "dst", newPath, "err", err)
+		newPath := filepath.Join(failedDir, filepath.Base(artifacts.Path))
+		if err := os.Rename(artifacts.Path, newPath); err != nil {
+			slog.Error("failed to move file", "src", artifacts, "dst", newPath, "err", err)
 		}
 	}
 }
 
 func (u *multiUploader) afterUpload(round Round) {
-	for typ, path := range round {
+	for typ, artifact := range round {
 		artifactConfig := u.artifactsConfig[typ]
 		if artifactConfig.MovePath != nil {
-			newPath := filepath.Join(*artifactConfig.MovePath, filepath.Base(path))
-			err := os.Rename(path, newPath)
+			newPath := filepath.Join(*artifactConfig.MovePath, filepath.Base(artifact.Path))
+			err := os.Rename(artifact.Path, newPath)
 			if err != nil {
-				slog.Error("failed to move file", "path", path, "err", err)
+				slog.Error("failed to move file", "path", artifact, "err", err)
 			}
 		} else {
-			if err := os.Remove(path); err != nil {
-				slog.Error("failed to remove file", "path", path, "err", err)
+			if err := os.Remove(artifact.Path); err != nil {
+				slog.Error("failed to remove file", "path", artifact, "err", err)
 			}
 		}
 	}

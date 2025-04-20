@@ -7,7 +7,7 @@ import (
 	"github.com/emilekm/artifacts-mover/internal/config"
 )
 
-type Round map[config.ArtifactType]string
+type Round map[config.ArtifactType]Artifact
 
 type Handler struct {
 	locToTyp    map[string]config.ArtifactType
@@ -44,21 +44,24 @@ func (h *Handler) OnFileCreate(path string) {
 		return
 	}
 
-	h.handleFile(path, typ)
+	h.handleFile(Artifact{
+		Path: path,
+		Type: typ,
+	})
 }
 
-func (h *Handler) handleFile(path string, typ config.ArtifactType) {
-	if _, ok := h.currentRound[typ]; ok {
+func (h *Handler) handleFile(artifact Artifact) {
+	if _, ok := h.currentRound[artifact.Type]; ok {
 		h.endCurrentRound()
 	}
 
 	if !h.bf2DemoOnly && len(h.currentRound) == h.typesCount-1 {
-		h.currentRound[typ] = path
+		h.currentRound[artifact.Type] = artifact
 		h.endCurrentRound()
 		return
 	}
 
-	h.currentRound[typ] = path
+	h.currentRound[artifact.Type] = artifact
 }
 
 func (h *Handler) endCurrentRound() {
@@ -87,7 +90,10 @@ func (h *Handler) UploadOldFiles() error {
 	for i := range maxLen {
 		for typ, files := range allFiles {
 			if len(files) > i {
-				h.handleFile(files[i], typ)
+				h.handleFile(Artifact{
+					Path: files[i],
+					Type: typ,
+				})
 			}
 		}
 	}

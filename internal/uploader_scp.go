@@ -52,10 +52,10 @@ func (u *scpUploader) Upload(round Round) error {
 		return err
 	}
 
-	for typ, path := range round {
+	for typ, artifact := range round {
 		err := client.CopyFileToRemote(
-			path,
-			u.fullUploadPath(typ, path),
+			artifact.Path,
+			u.fullUploadPath(typ, artifact.Path),
 			&scp.FileTransferOption{},
 		)
 		if err != nil {

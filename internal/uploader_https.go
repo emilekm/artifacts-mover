@@ -28,8 +28,8 @@ func newHTTPSUploader(
 }
 
 func (u *httpsUploader) Upload(round Round) error {
-	for typ, filename := range round {
-		err := u.uploadFile(typ, filename)
+	for typ, artifact := range round {
+		err := u.uploadFile(typ, artifact.Path)
 		if err != nil {
 			return err
 		}

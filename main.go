@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -12,6 +13,7 @@ import (
 )
 
 var configPath = flag.String("config", "config.yaml", "path to config file")
+var logLevel = flag.String("log-level", "info", "log level (debug, info, warn, error)")
 
 func main() {
 	ctx := context.Background()
@@ -22,6 +24,14 @@ func main() {
 
 func run(ctx context.Context) error {
 	flag.Parse()
+
+	level := slog.LevelInfo
+	err := level.UnmarshalText([]byte(*logLevel))
+	if err != nil {
+		return err
+	}
+
+	slog.SetLogLoggerLevel(level)
 
 	conf, err := config.New(*configPath)
 	if err != nil {

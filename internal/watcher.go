@@ -30,6 +30,8 @@ func (w *Watcher) Register(paths []string, handler fileHandler) {
 }
 
 func (w *Watcher) Watch(ctx context.Context) error {
+	log := slog.With("op", "Watcher.Watch")
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -38,6 +40,7 @@ func (w *Watcher) Watch(ctx context.Context) error {
 	defer watcher.Close()
 
 	for path := range w.handlers {
+		log.Debug("Adding path to watcher", "path", path)
 		if err := watcher.Add(path); err != nil {
 			return err
 		}
@@ -48,11 +51,12 @@ func (w *Watcher) Watch(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case event := <-watcher.Events:
+			log.Debug("Received file event", "event", event.Op, "path", event.Name)
 			if event.Op.Has(fsnotify.Create) {
 				dir := filepath.Dir(event.Name)
 				handler, ok := w.handlers[dir]
 				if !ok {
-					slog.Warn("No server found for file", slog.String("file", event.Name))
+					log.Warn("No server found for file", slog.String("file", event.Name))
 					continue
 				}
 

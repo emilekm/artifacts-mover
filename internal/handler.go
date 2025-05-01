@@ -80,7 +80,8 @@ func (h *Handler) handleFile(artifact Artifact) {
 }
 
 func (h *Handler) endCurrentRound() {
-	_ = h.uploader.Upload(h.currentRound)
+	err := h.uploader.Upload(h.currentRound)
+	slog.Error("failed to upload round", "err", err, "op", "Handler.endCurrentRound")
 	h.currentRound = make(Round)
 }
 

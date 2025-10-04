@@ -12,7 +12,7 @@ import (
 
 //go:generate go run go.uber.org/mock/mockgen -source=./uploader.go -destination=./uploader_mock.go -package=internal uploader
 
-type uploader interface {
+type Uploader interface {
 	Upload(Round) error
 }
 
@@ -21,7 +21,7 @@ type multiUploader struct {
 	queue            *Queue
 	failedUploadPath string
 
-	uploaders []uploader
+	uploaders []Uploader
 }
 
 func NewMultiUploader(
@@ -30,9 +30,9 @@ func NewMultiUploader(
 	artifactsConfing config.ArtifactsConfig,
 	failedUploadPath string,
 ) (*multiUploader, error) {
-	uploaders := make([]uploader, 0)
+	uploaders := make([]Uploader, 0)
 	if conf.SCP != nil {
-		uploader, err := newSCPUploader(*conf.SCP, artifactsConfing)
+		uploader, err := NewSCPUploader(*conf.SCP, artifactsConfing)
 		if err != nil {
 			return nil, err
 		}
@@ -40,7 +40,7 @@ func NewMultiUploader(
 	}
 
 	if conf.HTTPS != nil {
-		uploaders = append(uploaders, newHTTPSUploader(*conf.HTTPS, artifactsConfing))
+		uploaders = append(uploaders, NewHTTPSUploader(*conf.HTTPS, artifactsConfing))
 	}
 
 	return &multiUploader{

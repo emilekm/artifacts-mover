@@ -12,14 +12,14 @@ type Round map[config.ArtifactType]Artifact
 
 type Handler struct {
 	locToTyp    map[string]config.ArtifactType
-	uploader    uploader
+	uploader    Uploader
 	bf2DemoOnly bool
 	typesCount  int
 
 	currentRound Round
 }
 
-func NewHandler(uploader uploader, locToType map[string]config.ArtifactType) *Handler {
+func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType) *Handler {
 	bf2DemoOnly := true
 	for _, typ := range locToType {
 		if typ != config.ArtifactTypeBF2Demo {
@@ -81,7 +81,9 @@ func (h *Handler) handleFile(artifact Artifact) {
 
 func (h *Handler) endCurrentRound() {
 	err := h.uploader.Upload(h.currentRound)
-	slog.Error("failed to upload round", "err", err, "op", "Handler.endCurrentRound")
+	if err != nil {
+		slog.Error("failed to upload round", "err", err, "op", "Handler.endCurrentRound")
+	}
 	h.currentRound = make(Round)
 }
 

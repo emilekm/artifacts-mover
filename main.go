@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"log/slog"
@@ -44,7 +45,8 @@ func run(ctx context.Context) error {
 	}
 
 	w := internal.NewWatcher()
-	q := internal.NewQueue()
+	// TODO: implement queue in simple uploaders when needed
+	// q := internal.NewQueue()
 
 	for name, server := range conf.Servers {
 		svFailedPath := filepath.Join(failedPath, name)
@@ -52,9 +54,17 @@ func run(ctx context.Context) error {
 			return err
 		}
 
-		uploader, err := internal.NewMultiUploader(q, server.Upload, server.Artifacts, svFailedPath)
-		if err != nil {
-			return err
+		var uploader internal.Uploader
+
+		if server.Upload.HTTPS != nil {
+			uploader = internal.NewHTTPSUploader(*server.Upload.HTTPS, server.Artifacts)
+		} else if server.Upload.SCP != nil {
+			uploader, err = internal.NewSCPUploader(*server.Upload.SCP, server.Artifacts)
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors.New("no upload method configured")
 		}
 
 		locToType := make(map[string]config.ArtifactType)

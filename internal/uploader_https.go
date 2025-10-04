@@ -17,7 +17,7 @@ type httpsUploader struct {
 	conf            config.HTTPSConfig
 }
 
-func newHTTPSUploader(
+func NewHTTPSUploader(
 	conf config.HTTPSConfig,
 	artifactsConf config.ArtifactsConfig,
 ) *httpsUploader {

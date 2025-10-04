@@ -17,7 +17,7 @@ type scpUploader struct {
 	scpConf  *ssh.ClientConfig
 }
 
-func newSCPUploader(
+func NewSCPUploader(
 	conf config.SCPConfig,
 	artifactsConfig config.ArtifactsConfig,
 ) (*scpUploader, error) {
@@ -51,6 +51,8 @@ func (u *scpUploader) Upload(round Round) error {
 	if err != nil {
 		return err
 	}
+
+	defer client.Close()
 
 	for typ, artifact := range round {
 		err := client.CopyFileToRemote(

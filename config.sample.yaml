@@ -15,6 +15,13 @@ servers:
         privateKeyFile: /home/me/.ssh/id_rsa
         basePath: /var/www/my-server
 
+    discord:
+      webhookURL: https://discord.com/api/webhooks/...
+      urls:
+        bf2demo: https://my-server.com/bf2demos/
+        prdemo: https://my-server.com/prdemos/
+
+
   my-server-2:
     types:
       bf2demo:

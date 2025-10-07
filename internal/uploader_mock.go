@@ -15,32 +15,32 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-// Mockuploader is a mock of uploader interface.
-type Mockuploader struct {
+// MockUploader is a mock of Uploader interface.
+type MockUploader struct {
 	ctrl     *gomock.Controller
-	recorder *MockuploaderMockRecorder
+	recorder *MockUploaderMockRecorder
 	isgomock struct{}
 }
 
-// MockuploaderMockRecorder is the mock recorder for Mockuploader.
-type MockuploaderMockRecorder struct {
-	mock *Mockuploader
+// MockUploaderMockRecorder is the mock recorder for MockUploader.
+type MockUploaderMockRecorder struct {
+	mock *MockUploader
 }
 
-// NewMockuploader creates a new mock instance.
-func NewMockuploader(ctrl *gomock.Controller) *Mockuploader {
-	mock := &Mockuploader{ctrl: ctrl}
-	mock.recorder = &MockuploaderMockRecorder{mock}
+// NewMockUploader creates a new mock instance.
+func NewMockUploader(ctrl *gomock.Controller) *MockUploader {
+	mock := &MockUploader{ctrl: ctrl}
+	mock.recorder = &MockUploaderMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *Mockuploader) EXPECT() *MockuploaderMockRecorder {
+func (m *MockUploader) EXPECT() *MockUploaderMockRecorder {
 	return m.recorder
 }
 
 // Upload mocks base method.
-func (m *Mockuploader) Upload(arg0 Round) error {
+func (m *MockUploader) Upload(arg0 Round) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Upload", arg0)
 	ret0, _ := ret[0].(error)
@@ -48,7 +48,7 @@ func (m *Mockuploader) Upload(arg0 Round) error {
 }
 
 // Upload indicates an expected call of Upload.
-func (mr *MockuploaderMockRecorder) Upload(arg0 any) *gomock.Call {
+func (mr *MockUploaderMockRecorder) Upload(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upload", reflect.TypeOf((*Mockuploader)(nil).Upload), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upload", reflect.TypeOf((*MockUploader)(nil).Upload), arg0)
 }

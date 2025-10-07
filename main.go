@@ -72,7 +72,10 @@ func run(ctx context.Context) error {
 			locToType[filepath.Clean(loc.Location)] = typ
 		}
 
-		handler := internal.NewHandler(uploader, locToType)
+		handler, err := internal.NewHandler(uploader, locToType, server.Discord.WebhookURL, server.Discord.URLS)
+		if err != nil {
+			return err
+		}
 
 		err = handler.UploadOldFiles()
 		if err != nil {

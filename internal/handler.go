@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
+	"github.com/disgoorg/disgo/webhook"
 	"github.com/emilekm/artifacts-mover/internal/config"
 )
 
@@ -16,10 +17,13 @@ type Handler struct {
 	bf2DemoOnly bool
 	typesCount  int
 
+	webhook  webhook.Client
+	typToURL map[string]string
+
 	currentRound Round
 }
 
-func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType) *Handler {
+func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType, webhookURL string, typToURL map[string]string) (*Handler, error) {
 	bf2DemoOnly := true
 	for _, typ := range locToType {
 		if typ != config.ArtifactTypeBF2Demo {
@@ -28,13 +32,25 @@ func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType) *Ha
 		}
 	}
 
-	return &Handler{
+	h := &Handler{
 		locToTyp:     locToType,
+		typToURL:     typToURL,
 		uploader:     uploader,
 		typesCount:   len(locToType),
 		bf2DemoOnly:  bf2DemoOnly,
 		currentRound: make(Round),
 	}
+
+	if webhookURL != "" {
+		wh, err := webhook.NewWithURL(webhookURL)
+		if err != nil {
+			return nil, err
+		}
+
+		h.webhook = wh
+	}
+
+	return h, nil
 }
 
 func (h *Handler) OnFileCreate(path string) {
@@ -84,6 +100,7 @@ func (h *Handler) endCurrentRound() {
 	if err != nil {
 		slog.Error("failed to upload round", "err", err, "op", "Handler.endCurrentRound")
 	}
+	h.sendWebhook(h.currentRound)
 	h.currentRound = make(Round)
 }
 

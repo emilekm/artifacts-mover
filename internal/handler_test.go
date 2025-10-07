@@ -109,12 +109,13 @@ func TestHandler(t *testing.T) {
 			t.Run(test.name, func(t *testing.T) {
 				ctrl := gomock.NewController(t)
 
-				uploader := NewMockuploader(ctrl)
+				uploader := NewMockUploader(ctrl)
 				for _, round := range test.expectedRounds {
 					uploader.EXPECT().Upload(round)
 				}
 
-				handler := NewHandler(uploader, test.locToTyp)
+				handler, err := NewHandler(uploader, test.locToTyp, "", nil)
+				require.NoError(t, err)
 
 				for _, file := range test.files {
 					handler.OnFileCreate(file)
@@ -131,7 +132,7 @@ func TestHandler(t *testing.T) {
 
 				dir := t.TempDir()
 
-				uploader := NewMockuploader(ctrl)
+				uploader := NewMockUploader(ctrl)
 				for _, round := range test.expectedRounds {
 					for typ, artifact := range round {
 						artifact.Path = filepath.Join(dir, artifact.Path)
@@ -150,7 +151,8 @@ func TestHandler(t *testing.T) {
 					locToTyp[filepath.Join(dir, loc)] = typ
 				}
 
-				handler := NewHandler(uploader, locToTyp)
+				handler, err := NewHandler(uploader, locToTyp, "", nil)
+				require.NoError(t, err)
 
 				require.NoError(t, handler.UploadOldFiles())
 			})

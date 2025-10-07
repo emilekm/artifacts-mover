@@ -100,7 +100,10 @@ func (h *Handler) endCurrentRound() {
 	if err != nil {
 		slog.Error("failed to upload round", "err", err, "op", "Handler.endCurrentRound")
 	}
-	h.sendWebhook(h.currentRound)
+	err = h.sendWebhook(h.currentRound)
+	if err != nil {
+		slog.Error("failed to send webhook", "err", err, "op", "Handler.endCurrentRound")
+	}
 	h.currentRound = make(Round)
 }
 

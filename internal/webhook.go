@@ -22,12 +22,24 @@ Started: <t:%d:R> | <t:%d:F>
 Ended: <t:%d:R> | <t:%d:F>`
 )
 
+type player struct {
+	Name  string
+	Score int
+}
+
 type jsonSummary struct {
-	MapName   string
-	MapMode   string
-	MapLayer  int
+	MapName  string
+	MapMode  string
+	MapLayer int
+
+	Team1Name    string
+	Team2Name    string
+	Team1Tickets int
+	Team2Tickets int
+
 	StartTime int64
 	EndTime   int64
+	Players   []player
 }
 
 type DiscordWebhook struct {
@@ -47,7 +59,7 @@ func NewDiscordWebhook(webhookURL string, typToURL map[string]string) (*DiscordW
 	}, nil
 }
 
-func (h *DiscordWebhook) Send(round Round) error {
+func (w *DiscordWebhook) Send(round Round) error {
 	builder := discord.NewWebhookMessageCreateBuilder()
 	row := make(discord.ActionRowComponent, 0)
 
@@ -57,7 +69,7 @@ func (h *DiscordWebhook) Send(round Round) error {
 		case config.ArtifactTypeBF2Demo:
 			row = append(row, discord.NewLinkButton(
 				"Download Battle Recorder",
-				h.typToURL[typ.String()]+"/"+filename,
+				w.typToURL[typ.String()]+"/"+filename,
 			))
 		case config.ArtifactTypePRDemo:
 			file, err := os.Open(artifact.Path)
@@ -71,10 +83,10 @@ func (h *DiscordWebhook) Send(round Round) error {
 
 			row = append(row, discord.NewLinkButton(
 				"Download Tracker",
-				h.typToURL[typ.String()]+"/"+filename,
+				w.typToURL[typ.String()]+"/"+filename,
 			), discord.NewLinkButton(
 				"View Tracker",
-				h.typToURL[trackerType]+filename,
+				w.typToURL[trackerType]+filename,
 			))
 		case config.ArtifactTypeSummary:
 			summaryContent, err := os.ReadFile(artifact.Path)
@@ -86,6 +98,15 @@ func (h *DiscordWebhook) Send(round Round) error {
 			if err := json.Unmarshal(summaryContent, &summary); err != nil {
 				return err
 			}
+
+			imgReader, err := createImage(&summary)
+			if err != nil {
+				return err
+			}
+
+			imageFilename := "summary.png"
+
+			builder.AddFile(imageFilename, "", imgReader)
 
 			timestamp := time.Unix(summary.EndTime, 0)
 
@@ -107,12 +128,15 @@ func (h *DiscordWebhook) Send(round Round) error {
 				// 	URL: "attachment://" + imageFilename,
 				// },
 				Timestamp: &timestamp,
+				Image: &discord.EmbedResource{
+					URL: "attachment://" + imageFilename,
+				},
 			})
 		}
 	}
 
 	builder.SetContainerComponents(row)
 
-	_, err := h.client.CreateMessage(builder.Build())
+	_, err := w.client.CreateMessage(builder.Build())
 	return err
 }

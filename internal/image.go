@@ -39,7 +39,7 @@ func createImage(summary *jsonSummary) (io.Reader, error) {
 
 	dc := gg.NewContext(width, height)
 
-	bgImg, err := loadImageFromURL(mapName.ImageUrl, summary.MapName)
+	bgImg, err := loadImageFromURL(mapName.ImageUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func loadImage(filename string) (image.Image, error) {
 	return img, nil
 }
 
-func loadImageFromURL(url, cacheID string) (image.Image, error) {
+func loadImageFromURL(url string) (image.Image, error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err

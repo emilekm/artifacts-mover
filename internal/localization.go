@@ -2,7 +2,7 @@ package internal
 
 var factionsLayersModes = struct {
 	Factions map[string]string
-	Layers   map[string]struct {
+	Layers   map[int]struct {
 		Name  string
 		Short string
 	}
@@ -44,23 +44,23 @@ var factionsLayersModes = struct {
 		"ww2usa":      "US ARMY",
 		"ww2ger":      "Wehrmacht",
 	},
-	Layers: map[string]struct {
+	Layers: map[int]struct {
 		Name  string
 		Short string
 	}{
-		"16": {
+		16: {
 			Name:  "Infantry",
 			Short: "INF",
 		},
-		"32": {
+		32: {
 			Name:  "Alternative",
 			Short: "ALT",
 		},
-		"64": {
+		64: {
 			Name:  "Standard",
 			Short: "STD",
 		},
-		"128": {
+		128: {
 			Name:  "Large",
 			Short: "LRG",
 		},

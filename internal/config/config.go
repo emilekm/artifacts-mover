@@ -46,15 +46,15 @@ type Location struct {
 
 type ArtifactsConfig map[ArtifactType]Location
 
-type DiscordEmbed struct {
-	WebhookURL string            `yaml:"webhookURL"`
-	URLS       map[string]string `yaml:"urls"`
+type Discord struct {
+	ChannelID string            `yaml:"channelID"`
+	URLS      map[string]string `yaml:"urls"`
 }
 
 type Server struct {
 	Upload    UploadConfig    `yaml:"upload"`
 	Artifacts ArtifactsConfig `yaml:"types"`
-	Discord   DiscordEmbed    `yaml:"discord,omitempty"`
+	Discord   Discord         `yaml:"discord,omitempty"`
 }
 
 type Config struct {

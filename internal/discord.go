@@ -7,8 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/disgoorg/disgo/discord"
-	"github.com/disgoorg/disgo/webhook"
+	"github.com/bwmarrin/discordgo"
 	"github.com/emilekm/artifacts-mover/internal/config"
 )
 
@@ -42,35 +41,36 @@ type jsonSummary struct {
 	Players   []player
 }
 
-type DiscordWebhook struct {
-	client   webhook.Client
-	typToURL map[string]string
+type DiscordClient struct {
+	client    *discordgo.Session
+	channelID string
+	typToURL  map[string]string
 }
 
-func NewDiscordWebhook(webhookURL string, typToURL map[string]string) (*DiscordWebhook, error) {
-	wh, err := webhook.NewWithURL(webhookURL)
-	if err != nil {
-		return nil, err
-	}
-
-	return &DiscordWebhook{
-		client:   wh,
-		typToURL: typToURL,
+func NewDiscordClient(session *discordgo.Session, channelID string, typToURL map[string]string) (*DiscordClient, error) {
+	return &DiscordClient{
+		client:    session,
+		channelID: channelID,
+		typToURL:  typToURL,
 	}, nil
 }
 
-func (w *DiscordWebhook) Send(round Round) error {
-	builder := discord.NewWebhookMessageCreateBuilder()
-	row := make(discord.ActionRowComponent, 0)
+func (w *DiscordClient) Send(round Round) error {
+	msg := &discordgo.MessageSend{
+		Files: make([]*discordgo.File, 0),
+	}
+
+	row := discordgo.ActionsRow{}
 
 	for typ, artifact := range round {
 		filename := filepath.Base(artifact.Path)
 		switch typ {
 		case config.ArtifactTypeBF2Demo:
-			row = append(row, discord.NewLinkButton(
-				"Download Battle Recorder",
-				w.typToURL[typ.String()]+"/"+filename,
-			))
+			row.Components = append(row.Components, discordgo.Button{
+				Label: "Download Battle Recorder",
+				URL:   w.typToURL[typ.String()] + "/" + filename,
+				Style: discordgo.LinkButton,
+			})
 		case config.ArtifactTypePRDemo:
 			file, err := os.Open(artifact.Path)
 			if err != nil {
@@ -79,15 +79,20 @@ func (w *DiscordWebhook) Send(round Round) error {
 
 			defer file.Close()
 
-			builder.AddFile(filename, "", file)
+			msg.Files = append(msg.Files, &discordgo.File{
+				Name:   filename,
+				Reader: file,
+			})
 
-			row = append(row, discord.NewLinkButton(
-				"Download Tracker",
-				w.typToURL[typ.String()]+"/"+filename,
-			), discord.NewLinkButton(
-				"View Tracker",
-				w.typToURL[trackerType]+filename,
-			))
+			row.Components = append(row.Components, discordgo.Button{
+				Label: "Download Tracker",
+				URL:   w.typToURL[typ.String()] + "/" + filename,
+				Style: discordgo.LinkButton,
+			}, discordgo.Button{
+				Label: "View Tracker",
+				URL:   w.typToURL[trackerType] + filename,
+				Style: discordgo.LinkButton,
+			})
 		case config.ArtifactTypeSummary:
 			summaryContent, err := os.ReadFile(artifact.Path)
 			if err != nil {
@@ -106,11 +111,17 @@ func (w *DiscordWebhook) Send(round Round) error {
 
 			imageFilename := "summary.png"
 
-			builder.AddFile(imageFilename, "", imgReader)
+			msg.Files = append(msg.Files, &discordgo.File{
+				Name:   imageFilename,
+				Reader: imgReader,
+			})
 
-			timestamp := time.Unix(summary.EndTime, 0)
+			timestamp, err := time.Unix(summary.EndTime, 0).MarshalText()
+			if err != nil {
+				return err
+			}
 
-			builder.AddEmbeds(discord.Embed{
+			msg.Embeds = append(msg.Embeds, &discordgo.MessageEmbed{
 				Title: factionsLayersModes.MapNames[summary.MapName].Name,
 				Color: factionsLayersModes.GameModes[summary.MapMode].Color,
 				Description: fmt.Sprintf(
@@ -123,20 +134,16 @@ func (w *DiscordWebhook) Send(round Round) error {
 					summary.EndTime,
 					summary.EndTime,
 				),
-				// TODO: add nice image
-				// Image: &discord.EmbedResource{
-				// 	URL: "attachment://" + imageFilename,
-				// },
-				Timestamp: &timestamp,
-				Image: &discord.EmbedResource{
+				Timestamp: string(timestamp),
+				Image: &discordgo.MessageEmbedImage{
 					URL: "attachment://" + imageFilename,
 				},
 			})
 		}
 	}
 
-	builder.SetContainerComponents(row)
+	msg.Components = []discordgo.MessageComponent{row}
 
-	_, err := w.client.CreateMessage(builder.Build())
+	_, err := w.client.ChannelMessageSendComplex(w.channelID, msg)
 	return err
 }

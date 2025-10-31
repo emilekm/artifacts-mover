@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	abase "github.com/Alliance-Community/bots-base"
 	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/emilekm/artifacts-mover/internal/config"
 )
@@ -35,6 +36,23 @@ func run(ctx context.Context) error {
 	slog.SetLogLoggerLevel(level)
 
 	conf, err := config.New(*configPath)
+	if err != nil {
+		return err
+	}
+
+	discordConfig, err := abase.GetConfigFromEnv("MOVER")
+	if err != nil {
+		return err
+	}
+
+	debug := false
+	if _, ok := os.LookupEnv("DEBUG"); ok {
+		debug = true
+	}
+
+	logger := abase.NewLogger(discordConfig, debug)
+
+	bot, err := abase.NewBot(discordConfig, 0, logger)
 	if err != nil {
 		return err
 	}
@@ -72,15 +90,12 @@ func run(ctx context.Context) error {
 			locToType[filepath.Clean(loc.Location)] = typ
 		}
 
-		var webhook *internal.DiscordWebhook
-		if server.Discord.WebhookURL != "" {
-			webhook, err = internal.NewDiscordWebhook(server.Discord.WebhookURL, server.Discord.URLS)
-			if err != nil {
-				return err
-			}
+		discordClient, err := internal.NewDiscordClient(bot.Session(), server.Discord.ChannelID, server.Discord.URLS)
+		if err != nil {
+			return err
 		}
 
-		handler := internal.NewHandler(uploader, locToType, webhook)
+		handler := internal.NewHandler(uploader, locToType, discordClient)
 
 		err = handler.UploadOldFiles()
 		if err != nil {

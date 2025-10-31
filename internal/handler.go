@@ -16,12 +16,12 @@ type Handler struct {
 	bf2DemoOnly bool
 	typesCount  int
 
-	webhook *DiscordWebhook
+	discordClient *DiscordClient
 
 	currentRound Round
 }
 
-func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType, webhook *DiscordWebhook) *Handler {
+func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType, client *DiscordClient) *Handler {
 	bf2DemoOnly := true
 	for _, typ := range locToType {
 		if typ != config.ArtifactTypeBF2Demo {
@@ -31,12 +31,12 @@ func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType, web
 	}
 
 	return &Handler{
-		locToTyp:     locToType,
-		uploader:     uploader,
-		typesCount:   len(locToType),
-		bf2DemoOnly:  bf2DemoOnly,
-		currentRound: make(Round),
-		webhook:      webhook,
+		locToTyp:      locToType,
+		uploader:      uploader,
+		typesCount:    len(locToType),
+		bf2DemoOnly:   bf2DemoOnly,
+		currentRound:  make(Round),
+		discordClient: client,
 	}
 }
 
@@ -87,8 +87,8 @@ func (h *Handler) endCurrentRound() {
 	if err != nil {
 		slog.Error("failed to upload round", "err", err, "op", "Handler.endCurrentRound")
 	}
-	if h.webhook != nil {
-		err = h.webhook.Send(h.currentRound)
+	if h.discordClient != nil {
+		err = h.discordClient.Send(h.currentRound)
 		if err != nil {
 			slog.Error("failed to send webhook", "err", err, "op", "Handler.endCurrentRound")
 		}

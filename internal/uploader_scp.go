@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -11,10 +12,9 @@ import (
 
 type scpUploader struct {
 	artifactsConfig config.ArtifactsConfig
-
-	basePath string
-	address  string
-	scpConf  *ssh.ClientConfig
+	basePath        string
+	address         string
+	scpConf         *ssh.ClientConfig
 }
 
 func NewSCPUploader(
@@ -47,6 +47,8 @@ func NewSCPUploader(
 }
 
 func (u *scpUploader) Upload(round Round) error {
+	log := slog.With("op", "scpUploader.Upload")
+
 	client, err := u.client()
 	if err != nil {
 		return err
@@ -63,6 +65,7 @@ func (u *scpUploader) Upload(round Round) error {
 		if err != nil {
 			return err
 		}
+		log.Debug("uploaded file via SCP", "path", artifact.Path)
 	}
 
 	return nil

@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultRoundTimer = 4 * time.Hour
+	defaultRoundTimer = 4*time.Hour + 10*time.Minute // max round time (4h) + pre-round timer (5min) + leisure (5min)
 )
 
 var configPath = flag.String("config", "config.yaml", "path to config file")

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"time"
 
 	"github.com/goccy/go-yaml"
 )
@@ -52,9 +53,10 @@ type Discord struct {
 }
 
 type Server struct {
-	Upload    UploadConfig    `yaml:"upload"`
-	Artifacts ArtifactsConfig `yaml:"types"`
-	Discord   Discord         `yaml:"discord,omitempty"`
+	Upload       UploadConfig    `yaml:"upload"`
+	Artifacts    ArtifactsConfig `yaml:"types"`
+	Discord      Discord         `yaml:"discord,omitempty"`
+	RoundTimeout time.Duration   `yaml:"roundTimeout,omitempty"`
 }
 
 type Config struct {

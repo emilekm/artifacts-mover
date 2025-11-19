@@ -8,10 +8,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	abase "github.com/Alliance-Community/bots-base"
 	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/emilekm/artifacts-mover/internal/config"
+)
+
+const (
+	defaultRoundTimer = 4 * time.Hour
 )
 
 var configPath = flag.String("config", "config.yaml", "path to config file")
@@ -95,7 +100,12 @@ func run(ctx context.Context) error {
 			return err
 		}
 
-		handler := internal.NewHandler(uploader, locToType, discordClient)
+		roundTimeout := server.RoundTimeout
+		if roundTimeout == 0 {
+			roundTimeout = defaultRoundTimer
+		}
+
+		handler := internal.NewHandler(uploader, locToType, discordClient, roundTimeout)
 
 		err = handler.UploadOldFiles()
 		if err != nil {

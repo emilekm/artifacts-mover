@@ -4,9 +4,15 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/config"
 )
+
+type Notifier interface {
+	Send(Round) error
+}
 
 type Round map[config.ArtifactType]Artifact
 
@@ -16,12 +22,15 @@ type Handler struct {
 	bf2DemoOnly bool
 	typesCount  int
 
-	discordClient *DiscordClient
+	notifier Notifier
 
+	mu           sync.Mutex
 	currentRound Round
+	roundTimeout time.Duration
+	roundTimer   *time.Timer
 }
 
-func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType, client *DiscordClient) *Handler {
+func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType, notifier Notifier, roundTimeout time.Duration) *Handler {
 	bf2DemoOnly := true
 	for _, typ := range locToType {
 		if typ != config.ArtifactTypeBF2Demo {
@@ -31,12 +40,13 @@ func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType, cli
 	}
 
 	return &Handler{
-		locToTyp:      locToType,
-		uploader:      uploader,
-		typesCount:    len(locToType),
-		bf2DemoOnly:   bf2DemoOnly,
-		currentRound:  make(Round),
-		discordClient: client,
+		locToTyp:     locToType,
+		uploader:     uploader,
+		typesCount:   len(locToType),
+		bf2DemoOnly:  bf2DemoOnly,
+		currentRound: make(Round),
+		notifier:     notifier,
+		roundTimeout: roundTimeout,
 	}
 }
 
@@ -66,15 +76,26 @@ func (h *Handler) handleFile(artifact Artifact) {
 
 	log.Debug("Handling file")
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if _, ok := h.currentRound[artifact.Type]; ok {
 		log.Debug("Type already in current round, ending")
-		h.endCurrentRound()
+		h.endCurrentRoundLocked()
+	}
+
+	if len(h.currentRound) == 0 && h.roundTimeout > 0 && !h.bf2DemoOnly {
+		log.Debug("Starting round timeout", "timeout", h.roundTimeout)
+		h.startRoundTimer()
+	} else if h.roundTimer != nil {
+		log.Debug("Resetting round timeout", "timeout", h.roundTimeout)
+		h.roundTimer.Reset(h.roundTimeout)
 	}
 
 	if !h.bf2DemoOnly && len(h.currentRound) == h.typesCount-1 {
 		log.Debug("All types except one in current round, ending")
 		h.currentRound[artifact.Type] = artifact
-		h.endCurrentRound()
+		h.endCurrentRoundLocked()
 		return
 	}
 
@@ -82,15 +103,35 @@ func (h *Handler) handleFile(artifact Artifact) {
 	h.currentRound[artifact.Type] = artifact
 }
 
-func (h *Handler) endCurrentRound() {
+func (h *Handler) startRoundTimer() {
+	h.roundTimer = time.AfterFunc(h.roundTimeout, func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if len(h.currentRound) > 0 {
+			slog.Warn("Round timeout reached, ending incomplete round", "files", len(h.currentRound))
+			h.endCurrentRoundLocked()
+		}
+	})
+}
+
+func (h *Handler) endCurrentRoundLocked() {
+	if h.roundTimer != nil {
+		h.roundTimer.Stop()
+		h.roundTimer = nil
+	}
+
+	if len(h.currentRound) == 0 {
+		return
+	}
+
 	err := h.uploader.Upload(h.currentRound)
 	if err != nil {
 		slog.Error("failed to upload round", "err", err, "op", "Handler.endCurrentRound")
 	}
-	if h.discordClient != nil {
-		err = h.discordClient.Send(h.currentRound)
+	if h.notifier != nil {
+		err = h.notifier.Send(h.currentRound)
 		if err != nil {
-			slog.Error("failed to send webhook", "err", err, "op", "Handler.endCurrentRound")
+			slog.Error("failed to send notification", "err", err, "op", "Handler.endCurrentRound")
 		}
 	}
 	h.currentRound = make(Round)

@@ -114,7 +114,7 @@ func TestHandler(t *testing.T) {
 					uploader.EXPECT().Upload(round)
 				}
 
-				handler := NewHandler(uploader, test.locToTyp, nil)
+				handler := NewHandler(uploader, test.locToTyp, nil, 0)
 
 				for _, file := range test.files {
 					handler.OnFileCreate(file)
@@ -150,7 +150,7 @@ func TestHandler(t *testing.T) {
 					locToTyp[filepath.Join(dir, loc)] = typ
 				}
 
-				handler := NewHandler(uploader, locToTyp, nil)
+				handler := NewHandler(uploader, locToTyp, nil, 0)
 
 				require.NoError(t, handler.UploadOldFiles())
 			})

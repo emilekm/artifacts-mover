@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -17,37 +18,58 @@ type Notifier interface {
 type Round map[config.ArtifactType]Artifact
 
 type Handler struct {
-	locToTyp    map[string]config.ArtifactType
-	uploader    Uploader
+	uploader         Uploader
+	notifier         Notifier
+	artifactsConfig  config.ArtifactsConfig
+	locToTyp         map[string]config.ArtifactType
+	roundTimeout     time.Duration
+	failedUploadPath string
+
 	bf2DemoOnly bool
 	typesCount  int
 
-	notifier Notifier
-
 	mu           sync.Mutex
 	currentRound Round
-	roundTimeout time.Duration
 	roundTimer   *time.Timer
 }
 
-func NewHandler(uploader Uploader, locToType map[string]config.ArtifactType, notifier Notifier, roundTimeout time.Duration) *Handler {
+func NewHandler(
+	uploader Uploader,
+	notifier Notifier,
+	artifactsConfig config.ArtifactsConfig,
+	roundTimeout time.Duration,
+	failedUploadPath string,
+) (*Handler, error) {
 	bf2DemoOnly := true
-	for _, typ := range locToType {
+
+	locToType := make(map[string]config.ArtifactType)
+
+	for typ, location := range artifactsConfig {
+		locToType[filepath.Clean(location.Location)] = typ
+
 		if typ != config.ArtifactTypeBF2Demo {
 			bf2DemoOnly = false
-			break
+		}
+	}
+
+	for _, artifact := range locToType {
+		failedDir := filepath.Join(failedUploadPath, artifact.String())
+		if err := os.MkdirAll(failedDir, 0755); err != nil {
+			return nil, err
 		}
 	}
 
 	return &Handler{
-		locToTyp:     locToType,
-		uploader:     uploader,
-		typesCount:   len(locToType),
-		bf2DemoOnly:  bf2DemoOnly,
-		currentRound: make(Round),
-		notifier:     notifier,
-		roundTimeout: roundTimeout,
-	}
+		uploader:         uploader,
+		notifier:         notifier,
+		artifactsConfig:  artifactsConfig,
+		locToTyp:         locToType,
+		roundTimeout:     roundTimeout,
+		failedUploadPath: failedUploadPath,
+		bf2DemoOnly:      bf2DemoOnly,
+		typesCount:       len(locToType),
+		currentRound:     make(Round),
+	}, nil
 }
 
 func (h *Handler) OnFileCreate(path string) {
@@ -127,14 +149,52 @@ func (h *Handler) endCurrentRoundLocked() {
 	err := h.uploader.Upload(h.currentRound)
 	if err != nil {
 		slog.Error("failed to upload round", "err", err, "op", "Handler.endCurrentRound")
+		go h.backupFailedUploads(h.currentRound)
+		return
 	}
-	if h.notifier != nil {
-		err = h.notifier.Send(h.currentRound)
-		if err != nil {
-			slog.Error("failed to send notification", "err", err, "op", "Handler.endCurrentRound")
+
+	go func(round Round) {
+		if h.notifier != nil {
+			err = h.notifier.Send(round)
+			if err != nil {
+				slog.Error("failed to send notification", "err", err, "op", "Handler.endCurrentRound")
+			}
+		}
+
+		h.cleanupArtifacts(round)
+	}(h.currentRound)
+
+	h.currentRound = make(Round)
+}
+
+func (h *Handler) backupFailedUploads(round Round) {
+	log := slog.With("op", "Handler.backupFailedUploads")
+
+	for _, artifact := range round {
+		newPath := filepath.Join(h.failedUploadPath, artifact.Type.String(), filepath.Base(artifact.Path))
+		if err := os.Rename(artifact.Path, newPath); err != nil {
+			log.Error("failed to move file", "src", artifact.Path, "dst", newPath, "err", err)
 		}
 	}
-	h.currentRound = make(Round)
+}
+
+func (h *Handler) cleanupArtifacts(round Round) {
+	log := slog.With("op", "Handler.cleanupArtifacts")
+
+	for typ, artifact := range round {
+		artifactConfig := h.artifactsConfig[typ]
+		if artifactConfig.MovePath != nil {
+			newPath := filepath.Join(*artifactConfig.MovePath, filepath.Base(artifact.Path))
+			err := os.Rename(artifact.Path, newPath)
+			if err != nil {
+				log.Error("failed to move file", "path", artifact.Path, "err", err)
+			}
+		} else {
+			if err := os.Remove(artifact.Path); err != nil {
+				log.Error("failed to remove file", "path", artifact.Path, "err", err)
+			}
+		}
+	}
 }
 
 func (h *Handler) UploadOldFiles() error {

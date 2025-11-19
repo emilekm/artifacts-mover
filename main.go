@@ -62,17 +62,12 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	failedPath := conf.FailedUploadPath
-	if failedPath == "" {
-		failedPath = "./failed"
-	}
-
 	w := internal.NewWatcher()
 	// TODO: implement queue in simple uploaders when needed
 	// q := internal.NewQueue()
 
 	for name, server := range conf.Servers {
-		svFailedPath := filepath.Join(failedPath, name)
+		svFailedPath := filepath.Join(conf.FailedUploadPath, name)
 		if err := os.MkdirAll(svFailedPath, 0755); err != nil {
 			return err
 		}
@@ -90,11 +85,6 @@ func run(ctx context.Context) error {
 			return errors.New("no upload method configured")
 		}
 
-		locToType := make(map[string]config.ArtifactType)
-		for typ, loc := range server.Artifacts {
-			locToType[filepath.Clean(loc.Location)] = typ
-		}
-
 		discordClient, err := internal.NewDiscordClient(bot.Session(), server.Discord.ChannelID, server.Discord.URLS)
 		if err != nil {
 			return err
@@ -105,7 +95,10 @@ func run(ctx context.Context) error {
 			roundTimeout = defaultRoundTimer
 		}
 
-		handler := internal.NewHandler(uploader, locToType, discordClient, roundTimeout)
+		handler, err := internal.NewHandler(uploader, discordClient, server.Artifacts, roundTimeout, svFailedPath)
+		if err != nil {
+			return err
+		}
 
 		err = handler.UploadOldFiles()
 		if err != nil {

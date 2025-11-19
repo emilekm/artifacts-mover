@@ -12,15 +12,15 @@ import (
 
 func TestHandler(t *testing.T) {
 	tests := []struct {
-		name           string
-		locToTyp       map[string]config.ArtifactType
-		expectedRounds []Round
-		files          []string
+		name            string
+		artifactsConfig config.ArtifactsConfig
+		expectedRounds  []Round
+		files           []string
 	}{
 		{
 			name: "bf2demo only",
-			locToTyp: map[string]config.ArtifactType{
-				"bf2demos": config.ArtifactTypeBF2Demo,
+			artifactsConfig: config.ArtifactsConfig{
+				config.ArtifactTypeBF2Demo: config.Location{Location: "bf2demos"},
 			},
 			expectedRounds: []Round{
 				prepareRound(map[config.ArtifactType]string{
@@ -38,10 +38,10 @@ func TestHandler(t *testing.T) {
 		},
 		{
 			name: "mixed",
-			locToTyp: map[string]config.ArtifactType{
-				"bf2demos": config.ArtifactTypeBF2Demo,
-				"prdemos":  config.ArtifactTypePRDemo,
-				"json":     config.ArtifactTypeSummary,
+			artifactsConfig: config.ArtifactsConfig{
+				config.ArtifactTypeBF2Demo: config.Location{Location: "bf2demos"},
+				config.ArtifactTypePRDemo:  config.Location{Location: "prdemos"},
+				config.ArtifactTypeSummary: config.Location{Location: "json"},
 			},
 			expectedRounds: []Round{
 				prepareRound(map[config.ArtifactType]string{
@@ -67,10 +67,10 @@ func TestHandler(t *testing.T) {
 		},
 		{
 			name: "mixed - missing json",
-			locToTyp: map[string]config.ArtifactType{
-				"bf2demos": config.ArtifactTypeBF2Demo,
-				"prdemos":  config.ArtifactTypePRDemo,
-				"json":     config.ArtifactTypeSummary,
+			artifactsConfig: config.ArtifactsConfig{
+				config.ArtifactTypeBF2Demo: config.Location{Location: "bf2demos"},
+				config.ArtifactTypePRDemo:  config.Location{Location: "prdemos"},
+				config.ArtifactTypeSummary: config.Location{Location: "json"},
 			},
 			expectedRounds: []Round{
 				prepareRound(map[config.ArtifactType]string{
@@ -86,9 +86,9 @@ func TestHandler(t *testing.T) {
 		},
 		{
 			name: "non-bf2demo only",
-			locToTyp: map[string]config.ArtifactType{
-				"prdemos": config.ArtifactTypePRDemo,
-				"json":    config.ArtifactTypeSummary,
+			artifactsConfig: config.ArtifactsConfig{
+				config.ArtifactTypePRDemo:  config.Location{Location: "prdemos"},
+				config.ArtifactTypeSummary: config.Location{Location: "json"},
 			},
 			expectedRounds: []Round{
 				prepareRound(map[config.ArtifactType]string{
@@ -114,12 +114,14 @@ func TestHandler(t *testing.T) {
 					uploader.EXPECT().Upload(round)
 				}
 
-				handler := NewHandler(uploader, test.locToTyp, nil, 0)
+				failedDir := t.TempDir()
+
+				handler, err := NewHandler(uploader, nil, test.artifactsConfig, 0, failedDir)
+				require.NoError(t, err)
 
 				for _, file := range test.files {
 					handler.OnFileCreate(file)
 				}
-
 			})
 		}
 	})
@@ -145,12 +147,16 @@ func TestHandler(t *testing.T) {
 					require.NoError(t, os.WriteFile(filepath.Join(dir, file), []byte("test"), 0644))
 				}
 
-				locToTyp := make(map[string]config.ArtifactType)
-				for loc, typ := range test.locToTyp {
-					locToTyp[filepath.Join(dir, loc)] = typ
+				artifactsConfig := test.artifactsConfig
+				for typ, loc := range artifactsConfig {
+					loc.Location = filepath.Join(dir, loc.Location)
+					artifactsConfig[typ] = loc
 				}
 
-				handler := NewHandler(uploader, locToTyp, nil, 0)
+				failedDir := t.TempDir()
+
+				handler, err := NewHandler(uploader, nil, artifactsConfig, 0, failedDir)
+				require.NoError(t, err)
 
 				require.NoError(t, handler.UploadOldFiles())
 			})

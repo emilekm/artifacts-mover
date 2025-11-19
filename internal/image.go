@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"path"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
@@ -34,17 +36,27 @@ const (
 //go:embed assets/*
 var assets embed.FS
 
+var (
+	imageCache   = make(map[string]image.Image)
+	imageCacheMu sync.RWMutex
+	httpClient   = &http.Client{Timeout: 10 * time.Second}
+)
+
 func createImage(summary *jsonSummary) (io.Reader, error) {
-	mapName := factionsLayersModes.MapNames[summary.MapName]
+	mapName, ok := factionsLayersModes.MapNames[summary.MapName]
+	if !ok {
+		mapName.Name = "Unknown"
+		mapName.ImageUrl = ""
+	}
 
 	dc := gg.NewContext(width, height)
 
-	bgImg, err := loadImageFromURL(mapName.ImageUrl)
-	if err != nil {
-		return nil, err
+	if mapName.ImageUrl != "" {
+		bgImg, err := loadImageFromURL(mapName.ImageUrl)
+		if err == nil {
+			drawScaledImage(dc, bgImg, 0, 0, width, height)
+		}
 	}
-
-	drawScaledImage(dc, bgImg, 0, 0, width, height)
 
 	templateImage, err := loadImage("template.png")
 	if err != nil {
@@ -53,12 +65,25 @@ func createImage(summary *jsonSummary) (io.Reader, error) {
 
 	dc.DrawImage(templateImage, 0, 0)
 
-	err = setFont(dc, 24, fontTypeBold)
+	if err = setFont(dc, 24, fontTypeBold); err != nil {
+		return nil, err
+	}
 	dc.SetRGB(1, 1, 1)
-	dc.DrawStringAnchored(factionsLayersModes.MapNames[summary.MapName].Name, 200, 15, 0.5, 1)
+	dc.DrawStringAnchored(mapName.Name, 200, 15, 0.5, 1)
 
-	setFont(dc, 17, fontTypeMediumItalic)
-	layerMode := fmt.Sprintf("%s, %s", factionsLayersModes.GameModes[summary.MapMode].Name, factionsLayersModes.Layers[summary.MapLayer].Name)
+	if err = setFont(dc, 17, fontTypeMediumItalic); err != nil {
+		return nil, err
+	}
+
+	gameMode, ok := factionsLayersModes.GameModes[summary.MapMode]
+	if !ok {
+		gameMode.Name = "Unknown"
+	}
+	layer, ok := factionsLayersModes.Layers[summary.MapLayer]
+	if !ok {
+		layer.Name = "Unknown"
+	}
+	layerMode := fmt.Sprintf("%s, %s", gameMode.Name, layer.Name)
 	dc.DrawStringAnchored(layerMode, 200, 48, 0.5, 0.5)
 
 	if summary.MapMode == gpmGungame {
@@ -113,7 +138,9 @@ func findGGWinner(players []player) string {
 }
 
 func drawTickets(dc *gg.Context, summary *jsonSummary) error {
-	setFont(dc, 34, fontTypeBold)
+	if err := setFont(dc, 34, fontTypeBold); err != nil {
+		return err
+	}
 	dc.DrawStringAnchored(strconv.Itoa(summary.Team2Tickets), 161, 62, 0.5, 1)
 	dc.DrawStringAnchored(strconv.Itoa(summary.Team1Tickets), 239, 62, 0.5, 1)
 
@@ -161,17 +188,27 @@ func loadImage(filename string) (image.Image, error) {
 }
 
 func loadImageFromURL(url string) (image.Image, error) {
-	resp, err := http.Get(url)
+	imageCacheMu.RLock()
+	if img, ok := imageCache[url]; ok {
+		imageCacheMu.RUnlock()
+		return img, nil
+	}
+	imageCacheMu.RUnlock()
+
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
-
 	defer resp.Body.Close()
 
 	img, _, err := image.Decode(resp.Body)
 	if err != nil {
 		return nil, err
 	}
+
+	imageCacheMu.Lock()
+	imageCache[url] = img
+	imageCacheMu.Unlock()
 
 	return img, nil
 }

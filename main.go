@@ -114,5 +114,14 @@ func run(ctx context.Context) error {
 		w.Register(paths, handler)
 	}
 
+	go func() {
+		if err := bot.Start(); err != nil {
+			logger.Error("failed to start bot", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	defer bot.Stop()
+
 	return w.Watch(ctx)
 }

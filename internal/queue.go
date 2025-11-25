@@ -6,28 +6,23 @@ import (
 
 type queueItem struct {
 	Next *queueItem
-	Ch   chan error
-	Fn   func() error
+	Fn   func()
 }
 
 type Queue struct {
 	mutex sync.Mutex
 	first *queueItem
+	last  *queueItem
 }
 
 func NewQueue() *Queue {
 	return &Queue{}
 }
 
-func (q *Queue) Add(fn func() error) chan error {
-	ch := make(chan error, 1)
-
+func (q *Queue) Add(fn func()) {
 	q.insertItem(&queueItem{
 		Fn: fn,
-		Ch: ch,
 	})
-
-	return ch
 }
 
 func (q *Queue) insertItem(item *queueItem) {
@@ -36,18 +31,13 @@ func (q *Queue) insertItem(item *queueItem) {
 
 	if q.first == nil {
 		q.first = item
+		q.last = item
 		q.start()
 		return
 	}
 
-	last := q.first
-	for {
-		if last.Next == nil {
-			break
-		}
-		last = last.Next
-	}
-	last.Next = item
+	q.last.Next = item
+	q.last = item
 }
 
 func (q *Queue) start() {
@@ -60,11 +50,13 @@ func (q *Queue) start() {
 			}
 			q.mutex.Unlock()
 
-			q.first.Ch <- q.first.Fn()
-			close(q.first.Ch)
+			q.first.Fn()
 
 			q.mutex.Lock()
 			q.first = q.first.Next
+			if q.first == nil {
+				q.last = nil
+			}
 			q.mutex.Unlock()
 		}
 	}()

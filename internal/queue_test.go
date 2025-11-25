@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,20 +10,18 @@ import (
 func TestQueue(t *testing.T) {
 	q := NewQueue()
 
+	wg := sync.WaitGroup{}
 	counter := 0
-	incrementer := func() error {
+	incrementer := func() {
 		counter++
-		return nil
+		wg.Done()
 	}
 
-	ch1 := q.Add(incrementer)
-	ch2 := q.Add(incrementer)
+	wg.Add(2)
+	q.Add(incrementer)
+	q.Add(incrementer)
 
-	err := <-ch1
-	require.NoError(t, err)
-
-	err = <-ch2
-	require.NoError(t, err)
+	wg.Wait()
 
 	require.Equal(t, 2, counter)
 }

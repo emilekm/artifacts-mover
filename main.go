@@ -20,7 +20,6 @@ const (
 )
 
 var configPath = flag.String("config", "config.yaml", "path to config file")
-var logLevel = flag.String("log-level", "info", "log level (debug, info, warn, error)")
 
 func main() {
 	ctx := context.Background()
@@ -32,14 +31,6 @@ func main() {
 func run(ctx context.Context) error {
 	flag.Parse()
 
-	level := slog.LevelInfo
-	err := level.UnmarshalText([]byte(*logLevel))
-	if err != nil {
-		return err
-	}
-
-	slog.SetLogLoggerLevel(level)
-
 	conf, err := config.New(*configPath)
 	if err != nil {
 		return err
@@ -50,12 +41,8 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	debug := false
-	if _, ok := os.LookupEnv("DEBUG"); ok {
-		debug = true
-	}
-
-	logger := abase.NewLogger(discordConfig, debug)
+	logger := abase.NewLogger(discordConfig)
+	slog.SetDefault(logger)
 
 	bot, err := abase.NewBot(discordConfig, 0, logger)
 	if err != nil {

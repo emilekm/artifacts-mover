@@ -3,7 +3,7 @@ module github.com/emilekm/artifacts-mover
 go 1.24.0
 
 require (
-	github.com/Alliance-Community/bots-base v0.12.1-0.20250913203359-441302c1e5f8
+	github.com/Alliance-Community/bots-base v0.12.1-0.20250922110236-a3756d31f917
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/fogleman/gg v1.3.0
 	github.com/fsnotify/fsnotify v1.8.0

@@ -1,5 +1,7 @@
 github.com/Alliance-Community/bots-base v0.12.1-0.20250913203359-441302c1e5f8 h1:9QHf7OzXN27tQpU+gBes8xTWi2vY+s+UJ7ZdQl1LfK4=
 github.com/Alliance-Community/bots-base v0.12.1-0.20250913203359-441302c1e5f8/go.mod h1:FCa5NjxxJuocH4TGjFbxYrBSBxldeNx47h3RwjMdn80=
+github.com/Alliance-Community/bots-base v0.12.1-0.20250922110236-a3756d31f917 h1:3uRjywcC8Kmd+YB8mGwfE9v1s0So71NZYp9Loy8vg+k=
+github.com/Alliance-Community/bots-base v0.12.1-0.20250922110236-a3756d31f917/go.mod h1:FCa5NjxxJuocH4TGjFbxYrBSBxldeNx47h3RwjMdn80=
 github.com/bwmarrin/discordgo v0.29.0 h1:FmWeXFaKUwrcL3Cx65c20bTRW+vOb6k8AnaP+EgjDno=
 github.com/bwmarrin/discordgo v0.29.0/go.mod h1:NJZpH+1AfhIcyQsPeuBKsUtYrRnjkyu0kIVMCHkZtRY=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=

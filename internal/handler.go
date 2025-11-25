@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,7 +15,7 @@ import (
 //go:generate go run go.uber.org/mock/mockgen -source=./handler.go -destination=./handler_mock.go -package=internal Notifier
 
 type Notifier interface {
-	Send(Round) error
+	Send(context.Context, Round) error
 }
 
 type Round map[config.ArtifactType]Artifact
@@ -33,6 +34,8 @@ type Handler struct {
 	mu           sync.Mutex
 	currentRound Round
 	roundTimer   *time.Timer
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 func NewHandler(
@@ -61,6 +64,8 @@ func NewHandler(
 		}
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Handler{
 		uploader:         uploader,
 		notifier:         notifier,
@@ -71,6 +76,8 @@ func NewHandler(
 		bf2DemoOnly:      bf2DemoOnly,
 		typesCount:       len(locToType),
 		currentRound:     make(Round),
+		ctx:              ctx,
+		cancel:           cancel,
 	}, nil
 }
 
@@ -111,9 +118,6 @@ func (h *Handler) handleFile(artifact Artifact) {
 	if len(h.currentRound) == 0 && h.roundTimeout > 0 && !h.bf2DemoOnly {
 		log.Debug("Starting round timeout", "timeout", h.roundTimeout)
 		h.startRoundTimer()
-	} else if h.roundTimer != nil {
-		log.Debug("Resetting round timeout", "timeout", h.roundTimeout)
-		h.roundTimer.Reset(h.roundTimeout)
 	}
 
 	if !h.bf2DemoOnly && len(h.currentRound) == h.typesCount-1 {
@@ -129,6 +133,12 @@ func (h *Handler) handleFile(artifact Artifact) {
 
 func (h *Handler) startRoundTimer() {
 	h.roundTimer = time.AfterFunc(h.roundTimeout, func() {
+		select {
+		case <-h.ctx.Done():
+			return
+		default:
+		}
+
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		if len(h.currentRound) > 0 {
@@ -157,7 +167,7 @@ func (h *Handler) endCurrentRoundLocked() {
 
 	go func(round Round) {
 		if h.notifier != nil {
-			err = h.notifier.Send(round)
+			err = h.notifier.Send(h.ctx, round)
 			if err != nil {
 				slog.Error("failed to send notification", "err", err, "op", "Handler.endCurrentRound")
 			}
@@ -234,4 +244,16 @@ func (h *Handler) UploadOldFiles() error {
 	}
 
 	return nil
+}
+
+func (h *Handler) Close() {
+	h.cancel()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.roundTimer != nil {
+		h.roundTimer.Stop()
+		h.roundTimer = nil
+	}
 }

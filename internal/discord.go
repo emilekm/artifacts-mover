@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -55,7 +56,7 @@ func NewDiscordClient(session *discordgo.Session, channelID string, typToURL map
 	}, nil
 }
 
-func (w *DiscordClient) Send(round Round) error {
+func (w *DiscordClient) Send(ctx context.Context, round Round) error {
 	msg := &discordgo.MessageSend{
 		Files: make([]*discordgo.File, 0),
 	}
@@ -144,6 +145,6 @@ func (w *DiscordClient) Send(round Round) error {
 
 	msg.Components = []discordgo.MessageComponent{row}
 
-	_, err := w.client.ChannelMessageSendComplex(w.channelID, msg)
+	_, err := w.client.ChannelMessageSendComplex(w.channelID, msg, discordgo.WithContext(ctx))
 	return err
 }

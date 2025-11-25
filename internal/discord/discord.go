@@ -1,4 +1,4 @@
-package internal
+package discord
 
 import (
 	"context"
@@ -9,8 +9,13 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/emilekm/artifacts-mover/internal/config"
 )
+
+type discordSession interface {
+	ChannelMessageSendComplex(channelID string, msg *discordgo.MessageSend, opts ...discordgo.RequestOption) (*discordgo.Message, error)
+}
 
 const (
 	trackerType = "tracker"
@@ -42,21 +47,21 @@ type jsonSummary struct {
 	Players   []player
 }
 
-type DiscordClient struct {
-	client    *discordgo.Session
+type Client struct {
+	session   discordSession
 	channelID string
 	typToURL  map[string]string
 }
 
-func NewDiscordClient(session *discordgo.Session, channelID string, typToURL map[string]string) (*DiscordClient, error) {
-	return &DiscordClient{
-		client:    session,
+func New(session discordSession, channelID string, typToURL map[string]string) (*Client, error) {
+	return &Client{
+		session:   session,
 		channelID: channelID,
 		typToURL:  typToURL,
 	}, nil
 }
 
-func (w *DiscordClient) Send(ctx context.Context, round Round) error {
+func (w *Client) Send(ctx context.Context, round internal.Round) error {
 	msg := &discordgo.MessageSend{
 		Files: make([]*discordgo.File, 0),
 	}
@@ -145,6 +150,6 @@ func (w *DiscordClient) Send(ctx context.Context, round Round) error {
 
 	msg.Components = []discordgo.MessageComponent{row}
 
-	_, err := w.client.ChannelMessageSendComplex(w.channelID, msg, discordgo.WithContext(ctx))
+	_, err := w.session.ChannelMessageSendComplex(w.channelID, msg, discordgo.WithContext(ctx))
 	return err
 }

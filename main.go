@@ -13,6 +13,7 @@ import (
 	abase "github.com/Alliance-Community/bots-base"
 	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/emilekm/artifacts-mover/internal/config"
+	"github.com/emilekm/artifacts-mover/internal/discord"
 )
 
 const (
@@ -72,7 +73,7 @@ func run(ctx context.Context, confPath string) error {
 			return errors.New("no upload method configured")
 		}
 
-		discordClient, err := internal.NewDiscordClient(bot.Session(), server.Discord.ChannelID, server.Discord.URLS)
+		discordClient, err := discord.New(bot.Session(), server.Discord.ChannelID, server.Discord.URLS)
 		if err != nil {
 			return err
 		}

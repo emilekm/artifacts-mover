@@ -1,4 +1,4 @@
-package internal
+package discord
 
 var factionsLayersModes = struct {
 	Factions map[string]string

@@ -16,22 +16,22 @@ import (
 )
 
 const (
-	defaultRoundTimer = 4*time.Hour + 10*time.Minute // max round time (4h) + pre-round timer (5min) + leisure (5min)
+	defaultRoundTimer = 4*time.Hour + 10*time.Minute // max round time (4h) + max pre-round timer (5min) + leisure (5min)
 )
 
 var configPath = flag.String("config", "config.yaml", "path to config file")
 
 func main() {
+	flag.Parse()
+
 	ctx := context.Background()
-	if err := run(ctx); err != nil {
+	if err := run(ctx, *configPath); err != nil {
 		log.Fatalf("Error: %v", err)
 	}
 }
 
-func run(ctx context.Context) error {
-	flag.Parse()
-
-	conf, err := config.New(*configPath)
+func run(ctx context.Context, confPath string) error {
+	conf, err := config.New(confPath)
 	if err != nil {
 		return err
 	}

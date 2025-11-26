@@ -7,11 +7,11 @@ import (
 	"image"
 	"image/png"
 	"io"
-	"net/http"
 	"path"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
-	"time"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
@@ -36,23 +36,25 @@ const (
 //go:embed assets/*
 var assets embed.FS
 
-var (
-	imageCache   = make(map[string]image.Image)
-	imageCacheMu sync.RWMutex
-	httpClient   = &http.Client{Timeout: 10 * time.Second}
-)
+type imageGenerator struct {
+	imageCache map[string]image.Image
+	mapGallery *mapGallery
+	mu         sync.RWMutex
+}
 
-func createImage(summary *jsonSummary) (io.Reader, error) {
-	mapName, ok := factionsLayersModes.MapNames[summary.MapName]
-	if !ok {
-		mapName.Name = "Unknown"
-		mapName.ImageUrl = ""
+func newImageGenerator(mapGallery *mapGallery) *imageGenerator {
+	return &imageGenerator{
+		imageCache: make(map[string]image.Image),
+		mapGallery: mapGallery,
 	}
+}
 
+func (ig *imageGenerator) createImage(summary *jsonSummary) (io.Reader, error) {
 	dc := gg.NewContext(width, height)
 
-	if mapName.ImageUrl != "" {
-		bgImg, err := loadImageFromURL(mapName.ImageUrl)
+	details, ok := ig.mapDetails(summary)
+	if ok {
+		bgImg, err := ig.loadMapTile(details)
 		if err == nil {
 			drawScaledImage(dc, bgImg, 0, 0, width, height)
 		}
@@ -69,21 +71,13 @@ func createImage(summary *jsonSummary) (io.Reader, error) {
 		return nil, err
 	}
 	dc.SetRGB(1, 1, 1)
-	dc.DrawStringAnchored(mapName.Name, 200, 15, 0.5, 1)
+	dc.DrawStringAnchored(details.FullName(), 200, 15, 0.5, 1)
 
 	if err = setFont(dc, 17, fontTypeMediumItalic); err != nil {
 		return nil, err
 	}
 
-	gameMode, ok := factionsLayersModes.GameModes[summary.MapMode]
-	if !ok {
-		gameMode.Name = "Unknown"
-	}
-	layer, ok := factionsLayersModes.Layers[summary.MapLayer]
-	if !ok {
-		layer.Name = "Unknown"
-	}
-	layerMode := fmt.Sprintf("%s, %s", gameMode.Name, layer.Name)
+	layerMode := fmt.Sprintf("%s, %s", details.gameMode.Name, details.layer.Name)
 	dc.DrawStringAnchored(layerMode, 200, 48, 0.5, 0.5)
 
 	if summary.MapMode == gpmGungame {
@@ -187,30 +181,61 @@ func loadImage(filename string) (image.Image, error) {
 	return img, nil
 }
 
-func loadImageFromURL(url string) (image.Image, error) {
-	imageCacheMu.RLock()
-	if img, ok := imageCache[url]; ok {
-		imageCacheMu.RUnlock()
+func (ig *imageGenerator) loadMapTile(details mapDetails) (image.Image, error) {
+	ig.mu.RLock()
+	if img, ok := ig.imageCache[details.Key]; ok {
+		ig.mu.RUnlock()
 		return img, nil
 	}
-	imageCacheMu.RUnlock()
+	ig.mu.RUnlock()
 
-	resp, err := httpClient.Get(url)
+	body, err := ig.mapGallery.FetchMapTile(details.Name)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer body.Close()
 
-	img, _, err := image.Decode(resp.Body)
+	img, _, err := image.Decode(body)
 	if err != nil {
 		return nil, err
 	}
 
-	imageCacheMu.Lock()
-	imageCache[url] = img
-	imageCacheMu.Unlock()
+	ig.mu.Lock()
+	ig.imageCache[details.Key] = img
+	ig.mu.Unlock()
 
 	return img, nil
+}
+
+type mapDetails struct {
+	galleryMap
+	gameMode gameMode
+	layer    layer
+}
+
+func (ig *imageGenerator) mapDetails(summary *jsonSummary) (mapDetails, bool) {
+	found := true
+
+	m, ok := ig.mapGallery.GetMapByKey(summary.MapName)
+	if !ok {
+		found = false
+	}
+
+	gm, ok := factionsLayersModes.GameModes[summary.MapMode]
+	if !ok {
+		gm.Name = summary.MapMode
+	}
+
+	l, ok := factionsLayersModes.Layers[summary.MapLayer]
+	if !ok {
+		l.Name = strconv.Itoa(summary.MapLayer)
+	}
+
+	return mapDetails{
+		galleryMap: m,
+		gameMode:   gm,
+		layer:      l,
+	}, found
 }
 
 func setFont(dc *gg.Context, size float64, typ string) error {
@@ -236,4 +261,11 @@ func drawScaledImage(dc *gg.Context, img image.Image, x, y, w, h float64) {
 	dc.Scale(scaleX, scaleY)
 	dc.DrawImageAnchored(img, int(x/scaleX), int(y/scaleY), 0, 0)
 	dc.Pop()
+}
+func getKey(t string) string {
+	// Remove all spaces and underscores
+	re := regexp.MustCompile(`[ _]`)
+	cleaned := re.ReplaceAllString(t, "")
+	// Convert to lowercase
+	return strings.ToLower(cleaned)
 }

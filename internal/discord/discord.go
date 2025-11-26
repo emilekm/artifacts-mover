@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -51,13 +52,24 @@ type Client struct {
 	session   discordSession
 	channelID string
 	typToURL  map[string]string
+	ig        *imageGenerator
+	mapsCache *mapGallery
 }
 
 func New(session discordSession, channelID string, typToURL map[string]string) (*Client, error) {
+	httpClient := &http.Client{}
+
+	mapGallery, err := newMapGallery(httpClient)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Client{
 		session:   session,
 		channelID: channelID,
 		typToURL:  typToURL,
+		ig:        newImageGenerator(mapGallery),
+		mapsCache: mapGallery,
 	}, nil
 }
 
@@ -110,7 +122,7 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 				return err
 			}
 
-			imgReader, err := createImage(&summary)
+			imgReader, err := w.ig.createImage(&summary)
 			if err != nil {
 				return err
 			}
@@ -127,8 +139,10 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 				return err
 			}
 
+			mapDetails, _ := w.mapsCache.GetMapByKey(summary.MapName)
+
 			msg.Embeds = append(msg.Embeds, &discordgo.MessageEmbed{
-				Title: factionsLayersModes.MapNames[summary.MapName].Name,
+				Title: fmt.Sprintf("%s (%d km)", mapDetails.Name, mapDetails.Size),
 				Color: factionsLayersModes.GameModes[summary.MapMode].Color,
 				Description: fmt.Sprintf(
 					embedDescriptionFmt,

@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
@@ -37,16 +36,10 @@ const (
 var assets embed.FS
 
 type imageGenerator struct {
-	imageCache map[string]image.Image
-	mapGallery *mapGallery
-	mu         sync.RWMutex
 }
 
-func newImageGenerator(mapGallery *mapGallery) *imageGenerator {
-	return &imageGenerator{
-		imageCache: make(map[string]image.Image),
-		mapGallery: mapGallery,
-	}
+func newImageGenerator() *imageGenerator {
+	return &imageGenerator{}
 }
 
 func (ig *imageGenerator) createImage(summary *jsonSummary) (io.Reader, error) {
@@ -71,13 +64,13 @@ func (ig *imageGenerator) createImage(summary *jsonSummary) (io.Reader, error) {
 		return nil, err
 	}
 	dc.SetRGB(1, 1, 1)
-	dc.DrawStringAnchored(details.FullName(), 200, 15, 0.5, 1)
+	dc.DrawStringAnchored(fmt.Sprintf("%s (%d km)", details.Name, details.Size), 200, 15, 0.5, 1)
 
 	if err = setFont(dc, 17, fontTypeMediumItalic); err != nil {
 		return nil, err
 	}
 
-	layerMode := fmt.Sprintf("%s, %s", details.gameMode.Name, details.layer.Name)
+	layerMode := fmt.Sprintf("%s, %s", details.gameMode.Name, details.layer)
 	dc.DrawStringAnchored(layerMode, 200, 48, 0.5, 0.5)
 
 	if summary.MapMode == gpmGungame {
@@ -182,59 +175,50 @@ func loadImage(filename string) (image.Image, error) {
 }
 
 func (ig *imageGenerator) loadMapTile(details mapDetails) (image.Image, error) {
-	ig.mu.RLock()
-	if img, ok := ig.imageCache[details.Key]; ok {
-		ig.mu.RUnlock()
-		return img, nil
-	}
-	ig.mu.RUnlock()
-
-	body, err := ig.mapGallery.FetchMapTile(details.Name)
-	if err != nil {
-		return nil, err
-	}
-	defer body.Close()
-
-	img, _, err := image.Decode(body)
+	tile, err := assets.Open(path.Join("assets", "tiles", getKey(details.Name)+".jpg"))
 	if err != nil {
 		return nil, err
 	}
 
-	ig.mu.Lock()
-	ig.imageCache[details.Key] = img
-	ig.mu.Unlock()
+	defer tile.Close()
+
+	img, _, err := image.Decode(tile)
+	if err != nil {
+		return nil, err
+	}
 
 	return img, nil
 }
 
 type mapDetails struct {
-	galleryMap
+	level
 	gameMode gameMode
-	layer    layer
+	layer    string
 }
 
 func (ig *imageGenerator) mapDetails(summary *jsonSummary) (mapDetails, bool) {
 	found := true
 
-	m, ok := ig.mapGallery.GetMapByKey(summary.MapName)
+	m, ok := levels[summary.MapName]
 	if !ok {
 		found = false
+		m.Name = summary.MapName
 	}
 
-	gm, ok := factionsLayersModes.GameModes[summary.MapMode]
+	gm, ok := gameModes[summary.MapMode]
 	if !ok {
 		gm.Name = summary.MapMode
 	}
 
-	l, ok := factionsLayersModes.Layers[summary.MapLayer]
+	l, ok := layers[summary.MapLayer]
 	if !ok {
-		l.Name = strconv.Itoa(summary.MapLayer)
+		l = strconv.Itoa(summary.MapLayer)
 	}
 
 	return mapDetails{
-		galleryMap: m,
-		gameMode:   gm,
-		layer:      l,
+		level:    m,
+		gameMode: gm,
+		layer:    l,
 	}, found
 }
 

@@ -10,6 +10,7 @@
 package internal
 
 import (
+	context "context"
 	reflect "reflect"
 
 	gomock "go.uber.org/mock/gomock"
@@ -40,15 +41,15 @@ func (m *MockNotifier) EXPECT() *MockNotifierMockRecorder {
 }
 
 // Send mocks base method.
-func (m *MockNotifier) Send(arg0 Round) error {
+func (m *MockNotifier) Send(arg0 context.Context, arg1 Round) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Send", arg0)
+	ret := m.ctrl.Call(m, "Send", arg0, arg1)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Send indicates an expected call of Send.
-func (mr *MockNotifierMockRecorder) Send(arg0 any) *gomock.Call {
+func (mr *MockNotifierMockRecorder) Send(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockNotifier)(nil).Send), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockNotifier)(nil).Send), arg0, arg1)
 }

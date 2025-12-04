@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,6 +12,8 @@ import (
 	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/emilekm/artifacts-mover/internal/config"
 )
+
+//go:generate go run ./assets/scripts/generate_assets.go
 
 type discordSession interface {
 	ChannelMessageSendComplex(channelID string, msg *discordgo.MessageSend, opts ...discordgo.RequestOption) (*discordgo.Message, error)
@@ -53,23 +54,14 @@ type Client struct {
 	channelID string
 	typToURL  map[string]string
 	ig        *imageGenerator
-	mapsCache *mapGallery
 }
 
 func New(session discordSession, channelID string, typToURL map[string]string) (*Client, error) {
-	httpClient := &http.Client{}
-
-	mapGallery, err := newMapGallery(httpClient)
-	if err != nil {
-		return nil, err
-	}
-
 	return &Client{
 		session:   session,
 		channelID: channelID,
 		typToURL:  typToURL,
-		ig:        newImageGenerator(mapGallery),
-		mapsCache: mapGallery,
+		ig:        newImageGenerator(),
 	}, nil
 }
 
@@ -139,15 +131,21 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 				return err
 			}
 
-			mapDetails, _ := w.mapsCache.GetMapByKey(summary.MapName)
+			mapDetails, ok := levels[summary.MapName]
+			if !ok {
+				mapDetails = level{
+					Name: summary.MapName,
+					Size: 0,
+				}
+			}
 
 			msg.Embeds = append(msg.Embeds, &discordgo.MessageEmbed{
 				Title: fmt.Sprintf("%s (%d km)", mapDetails.Name, mapDetails.Size),
-				Color: factionsLayersModes.GameModes[summary.MapMode].Color,
+				Color: gameModes[summary.MapMode].Color,
 				Description: fmt.Sprintf(
 					embedDescriptionFmt,
-					factionsLayersModes.GameModes[summary.MapMode].Name,
-					factionsLayersModes.Layers[summary.MapLayer].Name,
+					gameModes[summary.MapMode].Name,
+					layers[summary.MapLayer],
 					(summary.EndTime-summary.StartTime)/60,
 					summary.StartTime,
 					summary.StartTime,

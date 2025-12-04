@@ -35,19 +35,12 @@ const (
 //go:embed assets/*
 var assets embed.FS
 
-type imageGenerator struct {
-}
-
-func newImageGenerator() *imageGenerator {
-	return &imageGenerator{}
-}
-
-func (ig *imageGenerator) createImage(summary *jsonSummary) (io.Reader, error) {
+func createImage(summary *jsonSummary) (io.Reader, error) {
 	dc := gg.NewContext(width, height)
 
-	details, ok := ig.mapDetails(summary)
+	details, ok := findMapDetails(summary)
 	if ok {
-		bgImg, err := ig.loadMapTile(details)
+		bgImg, err := loadMapTile(details)
 		if err == nil {
 			drawScaledImage(dc, bgImg, 0, 0, width, height)
 		}
@@ -174,7 +167,7 @@ func loadImage(filename string) (image.Image, error) {
 	return img, nil
 }
 
-func (ig *imageGenerator) loadMapTile(details mapDetails) (image.Image, error) {
+func loadMapTile(details mapDetails) (image.Image, error) {
 	tile, err := assets.Open(path.Join("assets", "tiles", getKey(details.Name)+".jpg"))
 	if err != nil {
 		return nil, err
@@ -196,7 +189,7 @@ type mapDetails struct {
 	layer    string
 }
 
-func (ig *imageGenerator) mapDetails(summary *jsonSummary) (mapDetails, bool) {
+func findMapDetails(summary *jsonSummary) (mapDetails, bool) {
 	found := true
 
 	m, ok := levels[summary.MapName]

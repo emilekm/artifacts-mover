@@ -53,7 +53,6 @@ type Client struct {
 	session   discordSession
 	channelID string
 	typToURL  map[string]string
-	ig        *imageGenerator
 }
 
 func New(session discordSession, channelID string, typToURL map[string]string) (*Client, error) {
@@ -61,7 +60,6 @@ func New(session discordSession, channelID string, typToURL map[string]string) (
 		session:   session,
 		channelID: channelID,
 		typToURL:  typToURL,
-		ig:        newImageGenerator(),
 	}, nil
 }
 
@@ -114,7 +112,7 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 				return err
 			}
 
-			imgReader, err := w.ig.createImage(&summary)
+			imgReader, err := createImage(&summary)
 			if err != nil {
 				return err
 			}

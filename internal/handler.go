@@ -3,10 +3,12 @@ package internal
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/config"
@@ -184,7 +186,7 @@ func (h *Handler) backupFailedUploads(round Round) {
 
 	for _, artifact := range round {
 		newPath := filepath.Join(h.failedUploadPath, artifact.Type.String(), filepath.Base(artifact.Path))
-		if err := os.Rename(artifact.Path, newPath); err != nil {
+		if err := move(artifact.Path, newPath); err != nil {
 			log.Error("failed to move file", "src", artifact.Path, "dst", newPath, "err", err)
 		}
 	}
@@ -197,7 +199,7 @@ func (h *Handler) cleanupArtifacts(round Round) {
 		artifactConfig := h.artifactsConfig[typ]
 		if artifactConfig.MovePath != nil {
 			newPath := filepath.Join(*artifactConfig.MovePath, filepath.Base(artifact.Path))
-			err := os.Rename(artifact.Path, newPath)
+			err := move(artifact.Path, newPath)
 			if err != nil {
 				log.Error("failed to move file", "path", artifact.Path, "err", err)
 			}
@@ -256,4 +258,47 @@ func (h *Handler) Close() {
 		h.roundTimer.Stop()
 		h.roundTimer = nil
 	}
+}
+
+// move tries to move a file from source to destination.
+// If the move fails due to cross-device link error, it falls back to copying
+func move(source, destination string) error {
+	err := os.Rename(source, destination)
+	if errno, ok := err.(syscall.Errno); ok && errno == 18 {
+		return moveCrossDevice(source, destination)
+	}
+	return err
+}
+
+func moveCrossDevice(source, destination string) error {
+	src, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	dst, err := os.Create(destination)
+	if err != nil {
+		src.Close()
+		return err
+	}
+	_, err = io.Copy(dst, src)
+	src.Close()
+	dst.Close()
+	if err != nil {
+		return err
+	}
+	fi, err := src.Stat()
+	if err != nil {
+		if err := os.Remove(destination); err != nil {
+			return err
+		}
+		return err
+	}
+	err = os.Chmod(destination, fi.Mode())
+	if err != nil {
+		if err := os.Remove(destination); err != nil {
+			return err
+		}
+		return err
+	}
+	return os.Remove(source)
 }

@@ -117,7 +117,12 @@ func (h *Handler) handleFile(artifact Artifact) {
 		h.endCurrentRoundLocked()
 	}
 
-	if len(h.currentRound) == 0 && h.roundTimeout > 0 && !h.bf2DemoOnly {
+	if artifact.Type == config.ArtifactTypeBF2Demo && len(h.currentRound) > 0 {
+		log.Debug("BF2 demo received, ending current round")
+		h.endCurrentRoundLocked()
+	}
+
+	if len(h.currentRound) == 0 && h.roundTimeout > 0 {
 		log.Debug("Starting round timeout", "timeout", h.roundTimeout)
 		h.startRoundTimer()
 	}
@@ -233,8 +238,20 @@ func (h *Handler) UploadOldFiles() error {
 		}
 	}
 
+	bf2Demos, withBf2Demo := allFiles[config.ArtifactTypeBF2Demo]
+
 	for i := range maxLen {
+		if withBf2Demo && len(bf2Demos) > i {
+			log.Debug("Handling old file", "path", bf2Demos[i], "type", config.ArtifactTypeBF2Demo.String())
+			h.handleFile(Artifact{
+				Path: bf2Demos[i],
+				Type: config.ArtifactTypeBF2Demo,
+			})
+		}
 		for typ, files := range allFiles {
+			if typ == config.ArtifactTypeBF2Demo {
+				continue
+			}
 			if len(files) > i {
 				log.Debug("Handling old file", "path", files[i], "type", typ.String())
 				h.handleFile(Artifact{

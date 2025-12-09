@@ -1,6 +1,6 @@
 module github.com/emilekm/artifacts-mover
 
-go 1.24.0
+go 1.24.11
 
 require (
 	github.com/Alliance-Community/bots-base v0.12.1-0.20250922110236-a3756d31f917

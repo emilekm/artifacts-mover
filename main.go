@@ -11,6 +11,7 @@ import (
 	"time"
 
 	abase "github.com/Alliance-Community/bots-base"
+	"github.com/bwmarrin/discordgo"
 	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/emilekm/artifacts-mover/internal/config"
 	"github.com/emilekm/artifacts-mover/internal/discord"
@@ -54,6 +55,8 @@ func run(ctx context.Context, confPath string) error {
 	// TODO: implement queue in simple uploaders when needed
 	// q := internal.NewQueue()
 
+	handlers := make([]*internal.Handler, 0)
+
 	for name, server := range conf.Servers {
 		svFailedPath := filepath.Join(conf.FailedUploadPath, name)
 		if err := os.MkdirAll(svFailedPath, 0755); err != nil {
@@ -88,10 +91,7 @@ func run(ctx context.Context, confPath string) error {
 			return err
 		}
 
-		err = handler.UploadOldFiles()
-		if err != nil {
-			return err
-		}
+		handlers = append(handlers, handler)
 
 		paths := make([]string, 0, len(server.Artifacts))
 
@@ -99,8 +99,18 @@ func run(ctx context.Context, confPath string) error {
 			paths = append(paths, loc.Location)
 		}
 
+		defer handler.Close()
+
 		w.Register(paths, handler)
 	}
+
+	blockCh := make(chan struct{})
+
+	bot.Session().AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+		logger.Info("Bot is up and running")
+
+		blockCh <- struct{}{}
+	})
 
 	go func() {
 		if err := bot.Start(); err != nil {
@@ -108,8 +118,16 @@ func run(ctx context.Context, confPath string) error {
 			os.Exit(1)
 		}
 	}()
-
 	defer bot.Stop()
+
+	<-blockCh
+
+	for _, handler := range handlers {
+		err := handler.UploadOldFiles()
+		if err != nil {
+			logger.Error("failed to upload old files", "error", err)
+		}
+	}
 
 	return w.Watch(ctx)
 }

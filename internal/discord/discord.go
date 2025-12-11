@@ -139,6 +139,7 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 
 			msg.Embeds = append(msg.Embeds, &discordgo.MessageEmbed{
 				Title: fmt.Sprintf("%s (%d km)", mapDetails.Name, mapDetails.Size),
+				Type:  discordgo.EmbedTypeRich,
 				Color: gameModes[summary.MapMode].Color,
 				Description: fmt.Sprintf(
 					embedDescriptionFmt,

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/config"
@@ -281,10 +280,10 @@ func (h *Handler) Close() {
 // If the move fails due to cross-device link error, it falls back to copying
 func move(source, destination string) error {
 	err := os.Rename(source, destination)
-	if errno, ok := err.(syscall.Errno); ok && errno == 18 {
+	if err != nil {
 		return moveCrossDevice(source, destination)
 	}
-	return err
+	return nil
 }
 
 func moveCrossDevice(source, destination string) error {

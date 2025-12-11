@@ -121,8 +121,8 @@ func drawTickets(dc *gg.Context, summary *jsonSummary) error {
 	if err := setFont(dc, 34, fontTypeBold); err != nil {
 		return err
 	}
-	dc.DrawStringAnchored(strconv.Itoa(summary.Team2Tickets), 161, 62, 0.5, 1)
-	dc.DrawStringAnchored(strconv.Itoa(summary.Team1Tickets), 239, 62, 0.5, 1)
+	dc.DrawStringAnchored(strconv.Itoa(summary.Team1Tickets), 161, 62, 0.5, 1)
+	dc.DrawStringAnchored(strconv.Itoa(summary.Team2Tickets), 239, 62, 0.5, 1)
 
 	// Team 1 flag
 	flag1Img, err := loadImage(summary.Team1Name + ".png")

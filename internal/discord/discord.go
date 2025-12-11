@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/emilekm/artifacts-mover/internal/config"
+	"github.com/emilekm/go-prbf2/prdemo"
 )
 
 //go:generate go run ./assets/scripts/generate_assets.go
@@ -70,6 +72,20 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 
 	row := discordgo.ActionsRow{}
 
+	tickets := struct {
+		Team1 *int16
+		Team2 *int16
+	}{}
+
+	if prDemo, ok := round[config.ArtifactTypePRDemo]; ok {
+		team1Tickets, team2Tickets, err := extractValidEndTickets(prDemo.Path)
+		if err != nil {
+			slog.Warn("failed to extract valid end tickets from PR demo", "error", err)
+		}
+		tickets.Team1 = &team1Tickets
+		tickets.Team2 = &team2Tickets
+	}
+
 	for typ, artifact := range round {
 		filename := filepath.Base(artifact.Path)
 		switch typ {
@@ -110,6 +126,13 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 			var summary jsonSummary
 			if err := json.Unmarshal(summaryContent, &summary); err != nil {
 				return err
+			}
+
+			if tickets.Team1 != nil {
+				summary.Team1Tickets = int(*tickets.Team1)
+			}
+			if tickets.Team2 != nil {
+				summary.Team2Tickets = int(*tickets.Team2)
 			}
 
 			imgReader, err := createImage(&summary)
@@ -163,4 +186,51 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 
 	_, err := w.session.ChannelMessageSendComplex(w.channelID, msg, discordgo.WithContext(ctx))
 	return err
+}
+
+func extractValidEndTickets(prDemoPath string) (int16, int16, error) {
+	demo, err := prdemo.NewDemoReaderFromFile(prDemoPath)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	team1, team2 := int16(0), int16(0)
+
+	for demo.Next() {
+		msg, err := demo.GetMessage()
+		if err != nil {
+			return 0, 0, err
+		}
+
+		switch msg.Type {
+		case prdemo.TicketsTeam1Type:
+			var ticketMsg prdemo.Tickets
+			err = msg.Decode(&ticketMsg)
+			if err != nil {
+				continue
+			}
+
+			if ticketMsg.Tickets < 0 {
+				ticketMsg.Tickets = 0
+			}
+
+			team1 = ticketMsg.Tickets
+		case prdemo.TicketsTeam2Type:
+			var ticketMsg prdemo.Tickets
+			err = msg.Decode(&ticketMsg)
+			if err != nil {
+				continue
+			}
+
+			if ticketMsg.Tickets < 0 {
+				ticketMsg.Tickets = 0
+			}
+
+			team2 = ticketMsg.Tickets
+		case prdemo.RoundEndType:
+			return team1, team2, nil
+		}
+	}
+
+	return team1, team2, nil
 }

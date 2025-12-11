@@ -1,13 +1,20 @@
 package internal
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
+
+	scp "github.com/bramvdbogaerde/go-scp"
 
 	"github.com/emilekm/artifacts-mover/internal/config"
-	"github.com/povsister/scp"
 	"golang.org/x/crypto/ssh"
+)
+
+const (
+	defaultConnTimeout = 20 * time.Second
 )
 
 type scpUploader struct {
@@ -26,7 +33,7 @@ func NewSCPUploader(
 		return nil, err
 	}
 
-	scpConf, err := scp.NewSSHConfigFromPrivateKey(conf.Username, privKey)
+	scpConf, err := newSSHConfigFromPrivateKey(conf.Username, privKey)
 	if err != nil {
 		return nil, err
 	}
@@ -38,29 +45,32 @@ func NewSCPUploader(
 		scpConf:         scpConf,
 	}
 
-	_, err = u.client()
-	if err != nil {
-		return nil, err
-	}
-
 	return u, nil
 }
 
 func (u *scpUploader) Upload(round Round) error {
 	log := slog.With("op", "scpUploader.Upload")
 
-	client, err := u.client()
+	client, err := u.connectSCPClient()
 	if err != nil {
 		return err
 	}
-
 	defer client.Close()
 
+	ctx := context.Background()
+
 	for typ, artifact := range round {
-		err := client.CopyFileToRemote(
-			artifact.Path,
+		file, err := os.Open(artifact.Path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		err = client.CopyFromFile(
+			ctx,
+			*file,
 			u.fullUploadPath(typ, artifact.Path),
-			&scp.FileTransferOption{},
+			"0644",
 		)
 		if err != nil {
 			return err
@@ -76,6 +86,31 @@ func (u *scpUploader) fullUploadPath(typ config.ArtifactType, path string) strin
 	return filepath.Join(u.basePath, u.artifactsConfig[typ].UploadPath, filename)
 }
 
-func (u *scpUploader) client() (*scp.Client, error) {
-	return scp.NewClient(u.address, u.scpConf, &scp.ClientOption{})
+func (u *scpUploader) connectSCPClient() (*scp.Client, error) {
+	client := scp.NewClient(u.address, u.scpConf)
+
+	err := client.Connect()
+	if err != nil {
+		return nil, err
+	}
+
+	return &client, nil
+}
+
+func newSSHConfigFromPrivateKey(username string, privPEM []byte) (cfg *ssh.ClientConfig, err error) {
+	var priv ssh.Signer
+	priv, err = ssh.ParsePrivateKey(privPEM)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg = &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(priv),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         defaultConnTimeout,
+	}
+	return
 }

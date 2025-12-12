@@ -41,10 +41,10 @@ func (u *scpUploader) Upload(round Round) error {
 	log := slog.With("op", "scpUploader.Upload")
 
 	for typ, artifact := range round {
-		err := exec.Command("scp", "-F", u.privKeyFile, artifact.Path, fmt.Sprintf(
+		err := exec.Command("scp", "-B", "-i", u.privKeyFile, artifact.Path, fmt.Sprintf(
 			"%s@%s:%s",
-			u.address,
 			u.username,
+			u.address,
 			u.fullUploadPath(typ, artifact.Path),
 		)).Run()
 		if err != nil {

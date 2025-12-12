@@ -51,7 +51,6 @@ func (w *Watcher) Watch(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case event := <-watcher.Events:
-			log.Debug("Received file event", "event", event.Op, "path", event.Name)
 			if event.Op.Has(fsnotify.Create) {
 				dir := filepath.Dir(event.Name)
 				handler, ok := w.handlers[dir]

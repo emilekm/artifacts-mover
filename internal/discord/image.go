@@ -125,16 +125,16 @@ func drawTickets(dc *gg.Context, summary *jsonSummary) error {
 	dc.DrawStringAnchored(strconv.Itoa(summary.Team1Tickets), 239, 62, 0.5, 1)
 
 	// Team 1 flag
-	flag1Img, err := loadImage(summary.Team1Name + ".png")
+	flag1Img, err := loadImage(strings.ToLower(summary.Team1Name) + ".png")
 	if err != nil {
-		return err
+		flag1Img, _ = loadImage("Blank.png")
 	}
 
 	drawScaledImage(dc, flag1Img, 280, 70, flagWidth, flagHeight)
 
-	flag2Img, err := loadImage(summary.Team2Name + ".png")
+	flag2Img, err := loadImage(strings.ToLower(summary.Team2Name) + ".png")
 	if err != nil {
-		return err
+		flag2Img, _ = loadImage("Blank.png")
 	}
 
 	drawScaledImage(dc, flag2Img, 71, 70, flagWidth, flagHeight)

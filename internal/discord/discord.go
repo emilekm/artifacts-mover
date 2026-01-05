@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -86,11 +87,13 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 		tickets.Team2 = &team2Tickets
 	}
 
+	buttons := make([]discordgo.Button, 0)
+
 	for typ, artifact := range round {
 		filename := filepath.Base(artifact.Path)
 		switch typ {
 		case config.ArtifactTypeBF2Demo:
-			row.Components = append(row.Components, discordgo.Button{
+			buttons = append(buttons, discordgo.Button{
 				Label: "Download Battle Recorder",
 				URL:   w.typToURL[typ.String()] + "/" + filename,
 				Style: discordgo.LinkButton,
@@ -108,7 +111,7 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 				Reader: file,
 			})
 
-			row.Components = append(row.Components, discordgo.Button{
+			buttons = append(buttons, discordgo.Button{
 				Label: "Download Tracker",
 				URL:   w.typToURL[typ.String()] + "/" + filename,
 				Style: discordgo.LinkButton,
@@ -180,6 +183,20 @@ func (w *Client) Send(ctx context.Context, round internal.Round) error {
 				},
 			})
 		}
+	}
+
+	slices.SortFunc(buttons, func(i, j discordgo.Button) int {
+		if i.Label < j.Label {
+			return 1
+		} else if i.Label > j.Label {
+			return -1
+		}
+
+		return 0
+	})
+
+	for _, button := range buttons {
+		row.Components = append(row.Components, button)
 	}
 
 	msg.Components = []discordgo.MessageComponent{row}

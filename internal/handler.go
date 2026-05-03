@@ -157,55 +157,6 @@ func (h *Handler) endCurrentRoundLocked() {
 	go h.process(round)
 }
 
-func (h *Handler) UploadOldFiles() error {
-	log := slog.With("op", "Handler.UploadOldFiles")
-
-	allFiles := make(map[config.ArtifactType][]string)
-
-	for path, typ := range h.locToTyp {
-		var err error
-		allFiles[typ], err = filepath.Glob(filepath.Join(path, "*"))
-		if err != nil {
-			return err
-		}
-
-		log.Debug("Found files", "path", path, "count", len(allFiles[typ]))
-	}
-
-	maxLen := 0
-	for _, files := range allFiles {
-		if len(files) > maxLen {
-			maxLen = len(files)
-		}
-	}
-
-	bf2Demos, withBf2Demo := allFiles[config.ArtifactTypeBF2Demo]
-
-	for i := range maxLen {
-		if withBf2Demo && len(bf2Demos) > i {
-			log.Debug("Handling old file", "path", bf2Demos[i], "type", config.ArtifactTypeBF2Demo.String())
-			h.handleFile(Artifact{
-				Path: bf2Demos[i],
-				Type: config.ArtifactTypeBF2Demo,
-			})
-		}
-		for typ, files := range allFiles {
-			if typ == config.ArtifactTypeBF2Demo {
-				continue
-			}
-			if len(files) > i {
-				log.Debug("Handling old file", "path", files[i], "type", typ.String())
-				h.handleFile(Artifact{
-					Path: files[i],
-					Type: typ,
-				})
-			}
-		}
-	}
-
-	return nil
-}
-
 func (h *Handler) Close() {
 	h.cancel()
 

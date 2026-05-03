@@ -160,6 +160,38 @@ func TestRoundProcessor_PassesRoundSummaryToNotifier(t *testing.T) {
 	assert.NotEmpty(t, s.RemoteRefs[config.ArtifactTypeSummary])
 }
 
+func TestRoundProcessor_UploadOldFiles_PairsFilesByIndex(t *testing.T) {
+	summaryDir := t.TempDir()
+	prDemoDir := t.TempDir()
+
+	summaryContent, err := os.ReadFile("testdata/valid_summary.json")
+	require.NoError(t, err)
+
+	for _, name := range []string{"20250501-round1.json", "20250502-round2.json"} {
+		require.NoError(t, os.WriteFile(filepath.Join(summaryDir, name), summaryContent, 0644))
+	}
+	for _, name := range []string{"20250501-round1.prdemo", "20250502-round2.prdemo"} {
+		require.NoError(t, os.WriteFile(filepath.Join(prDemoDir, name), []byte("prdemo"), 0644))
+	}
+
+	store := newTestStore(t)
+	notifier := &mockRoundNotifier{}
+
+	cfg := config.ArtifactsConfig{
+		config.ArtifactTypeSummary: config.Location{Location: summaryDir, UploadPath: "summaries"},
+		config.ArtifactTypePRDemo:  config.Location{Location: prDemoDir, UploadPath: "prdemos"},
+	}
+
+	proc := internal.NewRoundProcessor("server1", &mockArtifactUploader{}, store, notifier, cfg)
+
+	require.NoError(t, proc.UploadOldFiles(context.Background()))
+
+	require.Len(t, notifier.summaries, 2)
+	// Alphabetical sort guarantees round1 before round2.
+	assert.Contains(t, notifier.summaries[0].PRDemoPath, "round1")
+	assert.Contains(t, notifier.summaries[1].PRDemoPath, "round2")
+}
+
 func TestRoundProcessor_ReplayUnnotified_RetriesAndMarksNotified(t *testing.T) {
 	store := newTestStore(t)
 	notifier := &mockRoundNotifier{}

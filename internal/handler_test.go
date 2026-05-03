@@ -1,8 +1,6 @@
 package internal
 
 import (
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -124,35 +122,6 @@ func TestHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("UploadOldFiles", func(t *testing.T) {
-		for _, test := range tests {
-			t.Run(test.name, func(t *testing.T) {
-				dir := t.TempDir()
-
-				expected := prefixRounds(test.expectedRounds, dir)
-				rc := newRoundCapture(len(expected))
-
-				for _, file := range test.files {
-					require.NoError(t, os.MkdirAll(filepath.Join(dir, filepath.Dir(file)), 0755))
-					require.NoError(t, os.WriteFile(filepath.Join(dir, file), []byte("test"), 0644))
-				}
-
-				artifactsConfig := test.artifactsConfig
-				for typ, loc := range artifactsConfig {
-					loc.Location = filepath.Join(dir, loc.Location)
-					artifactsConfig[typ] = loc
-				}
-
-				handler, err := NewHandler(rc.process, artifactsConfig, 0)
-				require.NoError(t, err)
-
-				require.NoError(t, handler.UploadOldFiles())
-
-				rounds := rc.wait(t)
-				assert.ElementsMatch(t, expected, rounds)
-			})
-		}
-	})
 }
 
 // roundCapture collects rounds emitted by Handler via the process callback.
@@ -197,14 +166,3 @@ func prepareRound(artifacts map[config.ArtifactType]string) Round {
 	return round
 }
 
-func prefixRounds(rounds []Round, dir string) []Round {
-	result := make([]Round, len(rounds))
-	for i, round := range rounds {
-		result[i] = make(Round)
-		for typ, artifact := range round {
-			artifact.Path = filepath.Join(dir, artifact.Path)
-			result[i][typ] = artifact
-		}
-	}
-	return result
-}

@@ -1,9 +1,9 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -14,35 +14,32 @@ import (
 )
 
 type httpsUploader struct {
-	artifactsConfig config.ArtifactsConfig
-	conf            config.HTTPSConfig
+	conf config.HTTPSConfig
 }
 
-func NewHTTPSUploader(
-	conf config.HTTPSConfig,
-	artifactsConf config.ArtifactsConfig,
-) *httpsUploader {
-	return &httpsUploader{
-		artifactsConfig: artifactsConf,
-		conf:            conf,
-	}
+func NewHTTPSUploader(conf config.HTTPSConfig) *httpsUploader {
+	return &httpsUploader{conf: conf}
 }
 
-func (u *httpsUploader) Upload(round Round) error {
-	log := slog.With("op", "httpsUploader.Upload")
-
-	for typ, artifact := range round {
-		err := u.uploadFile(typ, artifact.Path)
-		if err != nil {
-			return err
-		}
-		log.Debug("uploaded file via HTTPS", "path", artifact.Path)
+func (u *httpsUploader) Upload(ctx context.Context, artifact Artifact) (RemoteRef, error) {
+	postURL, err := url.JoinPath(u.conf.URL, artifact.UploadPath)
+	if err != nil {
+		return "", err
 	}
 
-	return nil
+	ref, err := url.JoinPath(u.conf.URL, artifact.UploadPath, filepath.Base(artifact.Path))
+	if err != nil {
+		return "", err
+	}
+
+	if err := u.uploadFile(ctx, postURL, artifact.Path); err != nil {
+		return "", err
+	}
+
+	return ref, nil
 }
 
-func (u *httpsUploader) uploadFile(typ config.ArtifactType, filename string) error {
+func (u *httpsUploader) uploadFile(ctx context.Context, postURL, filename string) error {
 	file, err := os.Open(filename)
 	if err != nil {
 		return err
@@ -50,7 +47,6 @@ func (u *httpsUploader) uploadFile(typ config.ArtifactType, filename string) err
 	defer file.Close()
 
 	pr, pw := io.Pipe()
-
 	mw := multipart.NewWriter(pw)
 
 	errCh := make(chan error, 1)
@@ -63,33 +59,22 @@ func (u *httpsUploader) uploadFile(typ config.ArtifactType, filename string) err
 			errCh <- err
 			return
 		}
-
 		if _, err := io.Copy(part, file); err != nil {
 			errCh <- err
 			return
 		}
-
 		errCh <- nil
 	}()
 
-	uri, err := url.JoinPath(u.conf.URL, u.artifactsConfig[typ].UploadPath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, postURL, pr)
 	if err != nil {
 		return err
 	}
-
-	req, err := http.NewRequest("POST", uri, pr)
-	if err != nil {
-		return err
-	}
-
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 
-	if len(u.conf.Auth.Headers) > 0 {
-		for k, v := range u.conf.Auth.Headers {
-			req.Header.Set(k, v)
-		}
+	for k, v := range u.conf.Auth.Headers {
+		req.Header.Set(k, v)
 	}
-
 	if u.conf.Auth.Basic != nil {
 		req.SetBasicAuth(u.conf.Auth.Basic.Username, u.conf.Auth.Basic.Password)
 	}

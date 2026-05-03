@@ -5,18 +5,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/config"
 )
 
-type artifactUploader interface {
-	Upload(ctx context.Context, artifact Artifact) (RemoteRef, error)
-}
-
 type RoundProcessor struct {
 	serverID        string
-	uploader        artifactUploader
+	uploader        Uploader
 	store           StateStore
 	notifier        Notifier
 	artifactsConfig config.ArtifactsConfig
@@ -24,7 +21,7 @@ type RoundProcessor struct {
 
 func NewRoundProcessor(
 	serverID string,
-	uploader artifactUploader,
+	uploader Uploader,
 	store StateStore,
 	notifier Notifier,
 	artifactsConfig config.ArtifactsConfig,
@@ -160,6 +157,46 @@ func (p *RoundProcessor) buildSummary(summaryPath, prDemoPath string, remoteRefs
 	summary.PRDemoPath = prDemoPath
 	summary.RemoteRefs = remoteRefs
 	return summary, nil
+}
+
+// UploadOldFiles scans each artifact type's watch directory, sorts files
+// alphabetically, and processes them as rounds by index position. This
+// recovers complete rounds that arrived while the process was down.
+func (p *RoundProcessor) UploadOldFiles(ctx context.Context) error {
+	allFiles := make(map[config.ArtifactType][]string)
+
+	for typ, loc := range p.artifactsConfig {
+		files, err := filepath.Glob(filepath.Join(loc.Location, "*"))
+		if err != nil {
+			return err
+		}
+		sort.Strings(files)
+		allFiles[typ] = files
+	}
+
+	maxLen := 0
+	for _, files := range allFiles {
+		if len(files) > maxLen {
+			maxLen = len(files)
+		}
+	}
+
+	for i := range maxLen {
+		round := make(Round)
+		for typ, files := range allFiles {
+			if i < len(files) {
+				round[typ] = Artifact{Path: files[i], Type: typ}
+			}
+		}
+		if len(round) == 0 {
+			continue
+		}
+		if err := p.Process(ctx, round); err != nil {
+			slog.Error("failed to process old round", "index", i, "err", err)
+		}
+	}
+
+	return nil
 }
 
 func (p *RoundProcessor) cleanupArtifacts(round Round) {

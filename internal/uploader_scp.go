@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os/exec"
@@ -10,54 +11,33 @@ import (
 	"github.com/emilekm/artifacts-mover/internal/config"
 )
 
-const (
-	defaultConnTimeout = 20 * time.Second
-)
+const defaultConnTimeout = 20 * time.Second
 
 type scpUploader struct {
-	artifactsConfig config.ArtifactsConfig
-	basePath        string
-	address         string
-	privKeyFile     string
-	username        string
+	basePath    string
+	address     string
+	privKeyFile string
+	username    string
 }
 
-func NewSCPUploader(
-	conf config.SCPConfig,
-	artifactsConfig config.ArtifactsConfig,
-) (*scpUploader, error) {
-	u := &scpUploader{
-		artifactsConfig: artifactsConfig,
-		basePath:        conf.BasePath,
-		address:         conf.Address,
-		username:        conf.Username,
-		privKeyFile:     conf.PrivateKeyFile,
+func NewSCPUploader(conf config.SCPConfig) (*scpUploader, error) {
+	return &scpUploader{
+		basePath:    conf.BasePath,
+		address:     conf.Address,
+		username:    conf.Username,
+		privKeyFile: conf.PrivateKeyFile,
+	}, nil
+}
+
+func (u *scpUploader) Upload(ctx context.Context, artifact Artifact) (RemoteRef, error) {
+	remotePath := filepath.Join(u.basePath, artifact.UploadPath, filepath.Base(artifact.Path))
+	dest := fmt.Sprintf("%s@%s:%s", u.username, u.address, remotePath)
+
+	out, err := exec.CommandContext(ctx, "scp", "-B", "-i", u.privKeyFile, artifact.Path, dest).CombinedOutput()
+	if err != nil {
+		slog.Debug("SCP command output", "output", string(out))
+		return "", err
 	}
 
-	return u, nil
-}
-
-func (u *scpUploader) Upload(round Round) error {
-	log := slog.With("op", "scpUploader.Upload")
-
-	for typ, artifact := range round {
-		out, err := exec.Command("scp", "-B", "-i", u.privKeyFile, artifact.Path, fmt.Sprintf(
-			"%s@%s:%s",
-			u.username,
-			u.address,
-			u.fullUploadPath(typ, artifact.Path),
-		)).CombinedOutput()
-		if err != nil {
-			log.Debug("SCP command output", "output", string(out))
-			return err
-		}
-		log.Debug("uploaded file via SCP", "path", artifact.Path)
-	}
-
-	return nil
-}
-
-func (u *scpUploader) fullUploadPath(typ config.ArtifactType, path string) string {
-	filename := filepath.Base(path)
-	return filepath.Join(u.basePath, u.artifactsConfig[typ].UploadPath, filename)
+	return dest, nil
 }

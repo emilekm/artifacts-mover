@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"log/slog"
@@ -15,7 +16,9 @@ import (
 )
 
 const (
-	defaultRoundTimer = 4*time.Hour + 10*time.Minute // max round time (4h) + max pre-round timer (5min) + leisure (5min)
+	defaultRoundTimer          = 4*time.Hour + 10*time.Minute
+	defaultStateRetentionDays  = 7
+	defaultNotifyRetryWindowH  = 24
 )
 
 var configPath = flag.String("config", "config.yaml", "path to config file")
@@ -48,51 +51,83 @@ func run(ctx context.Context, confPath string) error {
 		return err
 	}
 
-	// TODO: open StateStore (stateStorePath from config)
+	stateStorePath := conf.StateStorePath
+	if stateStorePath == "" {
+		stateStorePath = "state.db"
+	}
+
+	store, err := internal.NewBboltStateStore(stateStorePath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	retentionDays := conf.StateRetentionDays
+	if retentionDays == 0 {
+		retentionDays = defaultStateRetentionDays
+	}
+
+	retryWindowHours := conf.NotifyRetryWindowHours
+	if retryWindowHours == 0 {
+		retryWindowHours = defaultNotifyRetryWindowH
+	}
 
 	w := internal.NewWatcher()
 
-	handlers := make([]*internal.Handler, 0)
+	type serverEntry struct {
+		handler   *internal.Handler
+		processor *internal.RoundProcessor
+		paths     []string
+	}
+	entries := make([]serverEntry, 0, len(conf.Servers))
 
 	for name, server := range conf.Servers {
-		// TODO: wire RoundProcessor with real uploader + StateStore once
-		// httpsUploader/scpUploader implement the single-file Uploader interface.
-		_ = name
+		var uploader internal.Uploader
+
+		if server.Upload.HTTPS != nil {
+			uploader = internal.NewHTTPSUploader(*server.Upload.HTTPS)
+		} else if server.Upload.SCP != nil {
+			uploader, err = internal.NewSCPUploader(*server.Upload.SCP)
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors.New("no upload method configured for server " + name)
+		}
 
 		discordClient, err := discord.New(bot.Session(), server.Discord.ChannelID, server.Discord.URLS)
 		if err != nil {
 			return err
 		}
-		_ = discordClient
+
+		processor := internal.NewRoundProcessor(name, uploader, store, discordClient, server.Artifacts)
 
 		roundTimeout := server.RoundTimeout
 		if roundTimeout == 0 {
 			roundTimeout = defaultRoundTimer
 		}
 
-		handler, err := internal.NewHandler(
-			func(internal.Round) { /* TODO: processor.Process(ctx, round) */ },
-			server.Artifacts,
-			roundTimeout,
-		)
+		serverName := name
+		handler, err := internal.NewHandler(func(round internal.Round) {
+			go func() {
+				if err := processor.Process(ctx, round); err != nil {
+					slog.Error("failed to process round", "server", serverName, "err", err)
+				}
+			}()
+		}, server.Artifacts, roundTimeout)
 		if err != nil {
 			return err
 		}
-
-		handlers = append(handlers, handler)
 
 		paths := make([]string, 0, len(server.Artifacts))
 		for _, loc := range server.Artifacts {
 			paths = append(paths, loc.Location)
 		}
 
-		defer handler.Close()
-
-		w.Register(paths, handler)
+		entries = append(entries, serverEntry{handler, processor, paths})
 	}
 
 	blockCh := make(chan struct{})
-
 	bot.Session().AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		logger.Info("Bot is up and running")
 		blockCh <- struct{}{}
@@ -107,8 +142,22 @@ func run(ctx context.Context, confPath string) error {
 
 	<-blockCh
 
-	for _, handler := range handlers {
-		if err := handler.UploadOldFiles(); err != nil {
+	retentionCutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+	replaySince := time.Now().Add(-time.Duration(retryWindowHours) * time.Hour)
+
+	if err := store.PurgeCompleted(retentionCutoff); err != nil {
+		logger.Error("failed to purge old state records", "error", err)
+	}
+
+	for _, e := range entries {
+		defer e.handler.Close()
+		w.Register(e.paths, e.handler)
+
+		if err := e.processor.ReplayUnnotified(ctx, replaySince); err != nil {
+			logger.Error("failed to replay unnotified rounds", "error", err)
+		}
+
+		if err := e.processor.UploadOldFiles(ctx); err != nil {
 			logger.Error("failed to upload old files", "error", err)
 		}
 	}

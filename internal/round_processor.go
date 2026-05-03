@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -39,6 +40,9 @@ func NewRoundProcessor(
 func (p *RoundProcessor) Process(ctx context.Context, round Round) error {
 	roundKey := time.Now().UTC().Format("20060102-150405.000")
 
+	remoteRefs := make(map[config.ArtifactType]RemoteRef)
+	var prDemoPath, summaryPath string
+
 	for typ, artifact := range round {
 		artifact.UploadPath = p.artifactsConfig[typ].UploadPath
 
@@ -54,9 +58,36 @@ func (p *RoundProcessor) Process(ctx context.Context, round Round) error {
 		}); err != nil {
 			return err
 		}
+
+		remoteRefs[typ] = ref
+
+		switch typ {
+		case config.ArtifactTypePRDemo:
+			prDemoPath = artifact.Path
+		case config.ArtifactTypeSummary:
+			summaryPath = artifact.Path
+		}
 	}
 
-	if err := p.notifier.Send(ctx, round); err != nil {
+	summary, err := ParseSummary(summaryPath)
+	if err != nil {
+		return err
+	}
+
+	if prDemoPath != "" {
+		t1, t2, err := ExtractTickets(prDemoPath)
+		if err != nil {
+			slog.Warn("failed to extract tickets from prdemo", "path", prDemoPath, "err", err)
+		} else {
+			summary.Team1Tickets = int(t1)
+			summary.Team2Tickets = int(t2)
+		}
+	}
+
+	summary.PRDemoPath = prDemoPath
+	summary.RemoteRefs = remoteRefs
+
+	if err := p.notifier.Send(ctx, summary); err != nil {
 		return err
 	}
 

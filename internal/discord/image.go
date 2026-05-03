@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
 )
@@ -35,7 +36,7 @@ const (
 //go:embed assets/*
 var assets embed.FS
 
-func createImage(summary *jsonSummary) (io.Reader, error) {
+func createImage(summary *internal.RoundSummary) (io.Reader, error) {
 	dc := gg.NewContext(width, height)
 
 	details, ok := findMapDetails(summary)
@@ -105,8 +106,8 @@ func drawGGWinner(dc *gg.Context, winner string) error {
 	return nil
 }
 
-func findGGWinner(players []player) string {
-	var winner player
+func findGGWinner(players []internal.Player) string {
+	var winner internal.Player
 
 	for _, p := range players {
 		if p.Score > winner.Score {
@@ -117,7 +118,7 @@ func findGGWinner(players []player) string {
 	return winner.Name
 }
 
-func drawTickets(dc *gg.Context, summary *jsonSummary) error {
+func drawTickets(dc *gg.Context, summary *internal.RoundSummary) error {
 	if err := setFont(dc, 34, fontTypeBold); err != nil {
 		return err
 	}
@@ -189,7 +190,7 @@ type mapDetails struct {
 	layer    string
 }
 
-func findMapDetails(summary *jsonSummary) (mapDetails, bool) {
+func findMapDetails(summary *internal.RoundSummary) (mapDetails, bool) {
 	found := true
 
 	m, ok := levels[summary.MapName]

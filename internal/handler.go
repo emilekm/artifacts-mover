@@ -16,14 +16,13 @@ import (
 //go:generate go run go.uber.org/mock/mockgen -source=./handler.go -destination=./handler_mock.go -package=internal Notifier
 
 type Notifier interface {
-	Send(context.Context, Round) error
+	Send(context.Context, RoundSummary) error
 }
 
 type Round map[config.ArtifactType]Artifact
 
 type Handler struct {
 	uploader         Uploader
-	notifier         Notifier
 	artifactsConfig  config.ArtifactsConfig
 	locToTyp         map[string]config.ArtifactType
 	roundTimeout     time.Duration
@@ -41,7 +40,6 @@ type Handler struct {
 
 func NewHandler(
 	uploader Uploader,
-	notifier Notifier,
 	artifactsConfig config.ArtifactsConfig,
 	roundTimeout time.Duration,
 	failedUploadPath string,
@@ -69,7 +67,6 @@ func NewHandler(
 
 	return &Handler{
 		uploader:         uploader,
-		notifier:         notifier,
 		artifactsConfig:  artifactsConfig,
 		locToTyp:         locToType,
 		roundTimeout:     roundTimeout,
@@ -171,16 +168,7 @@ func (h *Handler) endCurrentRoundLocked() {
 		return
 	}
 
-	go func(round Round) {
-		if h.notifier != nil {
-			err = h.notifier.Send(h.ctx, round)
-			if err != nil {
-				slog.Error("failed to send notification", "err", err, "op", "Handler.endCurrentRound")
-			}
-		}
-
-		h.cleanupArtifacts(round)
-	}(h.currentRound)
+	go h.cleanupArtifacts(h.currentRound)
 
 	h.currentRound = make(Round)
 }

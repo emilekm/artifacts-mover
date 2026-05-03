@@ -1,0 +1,15 @@
+{
+    "MapName": "muttrah_city_2",
+    "MapMode": "gpm_cq",
+    "MapLayer": 64,
+    "Team1Name": "MEC",
+    "Team2Name": "USMC",
+    "Team1Tickets": 245,
+    "Team2Tickets": 0,
+    "StartTime": 1700000000,
+    "EndTime": 1700003600,
+    "Players": [
+        {"Name": "Alice", "Score": 150},
+        {"Name": "Bob", "Score": 75}
+    ]
+}

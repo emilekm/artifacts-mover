@@ -116,7 +116,7 @@ func TestHandler(t *testing.T) {
 
 				failedDir := t.TempDir()
 
-				handler, err := NewHandler(uploader, nil, test.artifactsConfig, 0, failedDir)
+				handler, err := NewHandler(uploader, test.artifactsConfig, 0, failedDir)
 				require.NoError(t, err)
 
 				for _, file := range test.files {
@@ -155,7 +155,7 @@ func TestHandler(t *testing.T) {
 
 				failedDir := t.TempDir()
 
-				handler, err := NewHandler(uploader, nil, artifactsConfig, 0, failedDir)
+				handler, err := NewHandler(uploader, artifactsConfig, 0, failedDir)
 				require.NoError(t, err)
 
 				require.NoError(t, handler.UploadOldFiles())

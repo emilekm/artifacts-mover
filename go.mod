@@ -27,6 +27,7 @@ require (
 	github.com/samber/slog-common v0.19.0 // indirect
 	github.com/samber/slog-multi v1.5.0 // indirect
 	github.com/samber/slog-webhook/v2 v2.8.2 // indirect
+	go.etcd.io/bbolt v1.4.3 // indirect
 	golang.org/x/image v0.32.0 // indirect
 	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect

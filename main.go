@@ -2,12 +2,9 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"log"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	abase "github.com/Alliance-Community/bots-base"
@@ -51,42 +48,33 @@ func run(ctx context.Context, confPath string) error {
 		return err
 	}
 
+	// TODO: open StateStore (stateStorePath from config)
+
 	w := internal.NewWatcher()
-	// TODO: implement queue in simple uploaders when needed
-	// q := internal.NewQueue()
 
 	handlers := make([]*internal.Handler, 0)
 
 	for name, server := range conf.Servers {
-		svFailedPath := filepath.Join(conf.FailedUploadPath, name)
-		if err := os.MkdirAll(svFailedPath, 0755); err != nil {
-			return err
-		}
-
-		var uploader internal.Uploader
-
-		if server.Upload.HTTPS != nil {
-			uploader = internal.NewHTTPSUploader(*server.Upload.HTTPS, server.Artifacts)
-		} else if server.Upload.SCP != nil {
-			uploader, err = internal.NewSCPUploader(*server.Upload.SCP, server.Artifacts)
-			if err != nil {
-				return err
-			}
-		} else {
-			return errors.New("no upload method configured")
-		}
+		// TODO: wire RoundProcessor with real uploader + StateStore once
+		// httpsUploader/scpUploader implement the single-file Uploader interface.
+		_ = name
 
 		discordClient, err := discord.New(bot.Session(), server.Discord.ChannelID, server.Discord.URLS)
 		if err != nil {
 			return err
 		}
+		_ = discordClient
 
 		roundTimeout := server.RoundTimeout
 		if roundTimeout == 0 {
 			roundTimeout = defaultRoundTimer
 		}
 
-		handler, err := internal.NewHandler(uploader, discordClient, server.Artifacts, roundTimeout, svFailedPath)
+		handler, err := internal.NewHandler(
+			func(internal.Round) { /* TODO: processor.Process(ctx, round) */ },
+			server.Artifacts,
+			roundTimeout,
+		)
 		if err != nil {
 			return err
 		}
@@ -94,7 +82,6 @@ func run(ctx context.Context, confPath string) error {
 		handlers = append(handlers, handler)
 
 		paths := make([]string, 0, len(server.Artifacts))
-
 		for _, loc := range server.Artifacts {
 			paths = append(paths, loc.Location)
 		}
@@ -108,14 +95,12 @@ func run(ctx context.Context, confPath string) error {
 
 	bot.Session().AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		logger.Info("Bot is up and running")
-
 		blockCh <- struct{}{}
 	})
 
 	go func() {
 		if err := bot.Start(); err != nil {
 			logger.Error("failed to start bot", "error", err)
-			os.Exit(1)
 		}
 	}()
 	defer bot.Stop()
@@ -123,8 +108,7 @@ func run(ctx context.Context, confPath string) error {
 	<-blockCh
 
 	for _, handler := range handlers {
-		err := handler.UploadOldFiles()
-		if err != nil {
+		if err := handler.UploadOldFiles(); err != nil {
 			logger.Error("failed to upload old files", "error", err)
 		}
 	}

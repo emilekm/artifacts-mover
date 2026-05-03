@@ -22,11 +22,10 @@ type Notifier interface {
 type Round map[config.ArtifactType]Artifact
 
 type Handler struct {
-	uploader         Uploader
-	artifactsConfig  config.ArtifactsConfig
-	locToTyp         map[string]config.ArtifactType
-	roundTimeout     time.Duration
-	failedUploadPath string
+	process         func(Round)
+	artifactsConfig config.ArtifactsConfig
+	locToTyp        map[string]config.ArtifactType
+	roundTimeout    time.Duration
 
 	bf2DemoOnly bool
 	typesCount  int
@@ -39,10 +38,9 @@ type Handler struct {
 }
 
 func NewHandler(
-	uploader Uploader,
+	process func(Round),
 	artifactsConfig config.ArtifactsConfig,
 	roundTimeout time.Duration,
-	failedUploadPath string,
 ) (*Handler, error) {
 	bf2DemoOnly := true
 
@@ -56,26 +54,18 @@ func NewHandler(
 		}
 	}
 
-	for _, artifact := range locToType {
-		failedDir := filepath.Join(failedUploadPath, artifact.String())
-		if err := os.MkdirAll(failedDir, 0755); err != nil {
-			return nil, err
-		}
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Handler{
-		uploader:         uploader,
-		artifactsConfig:  artifactsConfig,
-		locToTyp:         locToType,
-		roundTimeout:     roundTimeout,
-		failedUploadPath: failedUploadPath,
-		bf2DemoOnly:      bf2DemoOnly,
-		typesCount:       len(locToType),
-		currentRound:     make(Round),
-		ctx:              ctx,
-		cancel:           cancel,
+		process:         process,
+		artifactsConfig: artifactsConfig,
+		locToTyp:        locToType,
+		roundTimeout:    roundTimeout,
+		bf2DemoOnly:     bf2DemoOnly,
+		typesCount:      len(locToType),
+		currentRound:    make(Round),
+		ctx:             ctx,
+		cancel:          cancel,
 	}, nil
 }
 
@@ -161,46 +151,10 @@ func (h *Handler) endCurrentRoundLocked() {
 		return
 	}
 
-	err := h.uploader.Upload(h.currentRound)
-	if err != nil {
-		slog.Error("failed to upload round", "err", err, "op", "Handler.endCurrentRound")
-		go h.backupFailedUploads(h.currentRound)
-		return
-	}
-
-	go h.cleanupArtifacts(h.currentRound)
-
+	round := h.currentRound
 	h.currentRound = make(Round)
-}
 
-func (h *Handler) backupFailedUploads(round Round) {
-	log := slog.With("op", "Handler.backupFailedUploads")
-
-	for _, artifact := range round {
-		newPath := filepath.Join(h.failedUploadPath, artifact.Type.String(), filepath.Base(artifact.Path))
-		if err := move(artifact.Path, newPath); err != nil {
-			log.Error("failed to move file", "src", artifact.Path, "dst", newPath, "err", err)
-		}
-	}
-}
-
-func (h *Handler) cleanupArtifacts(round Round) {
-	log := slog.With("op", "Handler.cleanupArtifacts")
-
-	for typ, artifact := range round {
-		artifactConfig := h.artifactsConfig[typ]
-		if artifactConfig.MovePath != nil {
-			newPath := filepath.Join(*artifactConfig.MovePath, filepath.Base(artifact.Path))
-			err := move(artifact.Path, newPath)
-			if err != nil {
-				log.Error("failed to move file", "path", artifact.Path, "err", err)
-			}
-		} else {
-			if err := os.Remove(artifact.Path); err != nil {
-				log.Error("failed to remove file", "path", artifact.Path, "err", err)
-			}
-		}
-	}
+	go h.process(round)
 }
 
 func (h *Handler) UploadOldFiles() error {
@@ -264,8 +218,8 @@ func (h *Handler) Close() {
 	}
 }
 
-// move tries to move a file from source to destination.
-// If the move fails due to cross-device link error, it falls back to copying
+// move tries to rename source to destination.
+// Falls back to copy+delete on cross-device moves.
 func move(source, destination string) error {
 	err := os.Rename(source, destination)
 	if err != nil {

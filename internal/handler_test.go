@@ -3,11 +3,13 @@ package internal
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/config"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	gomock "go.uber.org/mock/gomock"
 )
 
 func TestHandler(t *testing.T) {
@@ -107,21 +109,17 @@ func TestHandler(t *testing.T) {
 	t.Run("OnFileCreate", func(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				ctrl := gomock.NewController(t)
+				rc := newRoundCapture(len(test.expectedRounds))
 
-				uploader := NewMockUploader(ctrl)
-				for _, round := range test.expectedRounds {
-					uploader.EXPECT().Upload(round)
-				}
-
-				failedDir := t.TempDir()
-
-				handler, err := NewHandler(uploader, test.artifactsConfig, 0, failedDir)
+				handler, err := NewHandler(rc.process, test.artifactsConfig, 0)
 				require.NoError(t, err)
 
 				for _, file := range test.files {
 					handler.OnFileCreate(file)
 				}
+
+				rounds := rc.wait(t)
+				assert.ElementsMatch(t, test.expectedRounds, rounds)
 			})
 		}
 	})
@@ -129,18 +127,10 @@ func TestHandler(t *testing.T) {
 	t.Run("UploadOldFiles", func(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				ctrl := gomock.NewController(t)
-
 				dir := t.TempDir()
 
-				uploader := NewMockUploader(ctrl)
-				for _, round := range test.expectedRounds {
-					for typ, artifact := range round {
-						artifact.Path = filepath.Join(dir, artifact.Path)
-						round[typ] = artifact
-					}
-					uploader.EXPECT().Upload(round)
-				}
+				expected := prefixRounds(test.expectedRounds, dir)
+				rc := newRoundCapture(len(expected))
 
 				for _, file := range test.files {
 					require.NoError(t, os.MkdirAll(filepath.Join(dir, filepath.Dir(file)), 0755))
@@ -153,25 +143,68 @@ func TestHandler(t *testing.T) {
 					artifactsConfig[typ] = loc
 				}
 
-				failedDir := t.TempDir()
-
-				handler, err := NewHandler(uploader, artifactsConfig, 0, failedDir)
+				handler, err := NewHandler(rc.process, artifactsConfig, 0)
 				require.NoError(t, err)
 
 				require.NoError(t, handler.UploadOldFiles())
+
+				rounds := rc.wait(t)
+				assert.ElementsMatch(t, expected, rounds)
 			})
 		}
 	})
 }
 
+// roundCapture collects rounds emitted by Handler via the process callback.
+type roundCapture struct {
+	mu     sync.Mutex
+	wg     sync.WaitGroup
+	rounds []Round
+}
+
+func newRoundCapture(n int) *roundCapture {
+	rc := &roundCapture{}
+	rc.wg.Add(n)
+	return rc
+}
+
+func (rc *roundCapture) process(r Round) {
+	rc.mu.Lock()
+	rc.rounds = append(rc.rounds, r)
+	rc.mu.Unlock()
+	rc.wg.Done()
+}
+
+func (rc *roundCapture) wait(t *testing.T) []Round {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { rc.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for rounds")
+	}
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	return rc.rounds
+}
+
 func prepareRound(artifacts map[config.ArtifactType]string) Round {
 	round := make(Round)
 	for typ, path := range artifacts {
-		round[typ] = Artifact{
-			Path: path,
-			Type: typ,
+		round[typ] = Artifact{Path: path, Type: typ}
+	}
+	return round
+}
+
+func prefixRounds(rounds []Round, dir string) []Round {
+	result := make([]Round, len(rounds))
+	for i, round := range rounds {
+		result[i] = make(Round)
+		for typ, artifact := range round {
+			artifact.Path = filepath.Join(dir, artifact.Path)
+			result[i][typ] = artifact
 		}
 	}
-
-	return round
+	return result
 }

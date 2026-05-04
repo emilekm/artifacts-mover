@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ type RoundProcessor struct {
 	store           StateStore
 	notifier        Notifier
 	artifactsConfig config.ArtifactsConfig
+	discordURLs     map[string]string
 }
 
 func NewRoundProcessor(
@@ -25,6 +27,7 @@ func NewRoundProcessor(
 	store StateStore,
 	notifier Notifier,
 	artifactsConfig config.ArtifactsConfig,
+	discordURLs map[string]string,
 ) *RoundProcessor {
 	return &RoundProcessor{
 		serverID:        serverID,
@@ -32,6 +35,7 @@ func NewRoundProcessor(
 		store:           store,
 		notifier:        notifier,
 		artifactsConfig: artifactsConfig,
+		discordURLs:     discordURLs,
 	}
 }
 
@@ -44,20 +48,24 @@ func (p *RoundProcessor) Process(ctx context.Context, round Round) error {
 	for typ, artifact := range round {
 		artifact.UploadPath = p.artifactsConfig[typ].UploadPath
 
-		ref, err := p.uploader.Upload(ctx, artifact)
-		if err != nil {
+		if err := p.uploader.Upload(ctx, artifact); err != nil {
 			return err
 		}
 
+		filename := filepath.Base(artifact.Path)
+		ref := p.remoteRef(typ.String(), filename)
+
 		if err := p.store.RecordUpload(p.serverID, roundKey, UploadedArtifact{
-			Filename:  filepath.Base(artifact.Path),
+			Filename:  filename,
 			Type:      typ,
 			RemoteRef: ref,
 		}); err != nil {
 			return err
 		}
 
-		remoteRefs[typ] = ref
+		if ref != "" {
+			remoteRefs[typ] = ref
+		}
 
 		switch typ {
 		case config.ArtifactTypePRDemo:
@@ -107,7 +115,9 @@ func (p *RoundProcessor) retryNotification(ctx context.Context, record RoundReco
 	var summaryFilename, prDemoFilename string
 
 	for _, a := range record.Artifacts {
-		remoteRefs[a.Type] = a.RemoteRef
+		if a.RemoteRef != "" {
+			remoteRefs[a.Type] = a.RemoteRef
+		}
 		switch a.Type {
 		case config.ArtifactTypeSummary:
 			summaryFilename = a.Filename
@@ -197,6 +207,13 @@ func (p *RoundProcessor) UploadOldFiles(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (p *RoundProcessor) remoteRef(typKey, filename string) string {
+	if urlTemplate, ok := p.discordURLs[typKey]; ok {
+		return fmt.Sprintf(urlTemplate, filename)
+	}
+	return ""
 }
 
 func (p *RoundProcessor) cleanupArtifacts(round Round) {

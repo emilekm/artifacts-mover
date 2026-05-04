@@ -79,7 +79,7 @@ func (w *Client) Send(ctx context.Context, summary *internal.RoundSummary) error
 
 		row.Components = append(row.Components, discordgo.Button{
 			Label: "View Tracker",
-			URL:   w.trackerURL + filepath.Base(summary.PRDemoPath),
+			URL:   fmt.Sprintf(w.trackerURL, filepath.Base(summary.PRDemoPath)),
 			Style: discordgo.LinkButton,
 		})
 	}

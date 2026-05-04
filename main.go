@@ -100,7 +100,7 @@ func run(ctx context.Context, confPath string) error {
 			return err
 		}
 
-		processor := internal.NewRoundProcessor(name, uploader, store, discordClient, server.Artifacts)
+		processor := internal.NewRoundProcessor(name, uploader, store, discordClient, server.Artifacts, server.Discord.URLS)
 
 		roundTimeout := server.RoundTimeout
 		if roundTimeout == 0 {

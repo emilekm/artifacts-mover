@@ -18,9 +18,9 @@ servers:
     discord:
       webhookURL: https://discord.com/api/webhooks/...
       urls:
-        bf2demo: https://my-server.com/bf2demos/
-        prdemo: https://my-server.com/prdemos/
-
+        bf2demo: https://my-server.com/bf2demos/%s
+        prdemo: https://my-server.com/prdemos/%s
+        tracker: https://tracker.my-server.com/replay/%s
 
   my-server-2:
     types:

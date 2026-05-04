@@ -21,22 +21,13 @@ func NewHTTPSUploader(conf config.HTTPSConfig) *httpsUploader {
 	return &httpsUploader{conf: conf}
 }
 
-func (u *httpsUploader) Upload(ctx context.Context, artifact Artifact) (RemoteRef, error) {
+func (u *httpsUploader) Upload(ctx context.Context, artifact Artifact) error {
 	postURL, err := url.JoinPath(u.conf.URL, artifact.UploadPath)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	ref, err := url.JoinPath(u.conf.URL, artifact.UploadPath, filepath.Base(artifact.Path))
-	if err != nil {
-		return "", err
-	}
-
-	if err := u.uploadFile(ctx, postURL, artifact.Path); err != nil {
-		return "", err
-	}
-
-	return ref, nil
+	return u.uploadFile(ctx, postURL, artifact.Path)
 }
 
 func (u *httpsUploader) uploadFile(ctx context.Context, postURL, filename string) error {

@@ -54,8 +54,6 @@ func NewHandler(
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
 	return &Handler{
 		process:         process,
 		artifactsConfig: artifactsConfig,
@@ -64,8 +62,6 @@ func NewHandler(
 		bf2DemoOnly:     bf2DemoOnly,
 		typesCount:      len(locToType),
 		currentRound:    make(Round),
-		ctx:             ctx,
-		cancel:          cancel,
 	}, nil
 }
 
@@ -126,12 +122,6 @@ func (h *Handler) handleFile(artifact Artifact) {
 
 func (h *Handler) startRoundTimer() {
 	h.roundTimer = time.AfterFunc(h.roundTimeout, func() {
-		select {
-		case <-h.ctx.Done():
-			return
-		default:
-		}
-
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		if len(h.currentRound) > 0 {

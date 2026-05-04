@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -50,10 +49,8 @@ func (w *Client) Send(ctx context.Context, summary internal.RoundSummary) error 
 	}
 
 	row := discordgo.ActionsRow{}
-	buttons := make([]discordgo.Button, 0)
-
 	if ref, ok := summary.RemoteRefs[config.ArtifactTypeBF2Demo]; ok {
-		buttons = append(buttons, discordgo.Button{
+		row.Components = append(row.Components, discordgo.Button{
 			Label: "Download Battle Recorder",
 			URL:   ref,
 			Style: discordgo.LinkButton,
@@ -73,14 +70,14 @@ func (w *Client) Send(ctx context.Context, summary internal.RoundSummary) error 
 		})
 
 		if ref, ok := summary.RemoteRefs[config.ArtifactTypePRDemo]; ok {
-			buttons = append(buttons, discordgo.Button{
+			row.Components = append(row.Components, discordgo.Button{
 				Label: "Download Tracker",
 				URL:   ref,
 				Style: discordgo.LinkButton,
 			})
 		}
 
-		buttons = append(buttons, discordgo.Button{
+		row.Components = append(row.Components, discordgo.Button{
 			Label: "View Tracker",
 			URL:   w.trackerURL + filepath.Base(summary.PRDemoPath),
 			Style: discordgo.LinkButton,
@@ -129,19 +126,6 @@ func (w *Client) Send(ctx context.Context, summary internal.RoundSummary) error 
 				URL: "attachment://" + imageFilename,
 			},
 		})
-	}
-
-	slices.SortFunc(buttons, func(i, j discordgo.Button) int {
-		if i.Label < j.Label {
-			return 1
-		} else if i.Label > j.Label {
-			return -1
-		}
-		return 0
-	})
-
-	for _, button := range buttons {
-		row.Components = append(row.Components, button)
 	}
 
 	msg.Components = []discordgo.MessageComponent{row}

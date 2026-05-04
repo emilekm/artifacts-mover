@@ -2,7 +2,7 @@ package config
 
 import "fmt"
 
-//go:generate go run golang.org/x/tools/cmd/stringer -type=ArtifactType -linecomment -output=artifacttype_string.go
+//go:generate go tool golang.org/x/tools/cmd/stringer -type=ArtifactType -linecomment -output=artifacttype_string.go
 
 type ArtifactType int
 

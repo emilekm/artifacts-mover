@@ -18,8 +18,9 @@ const _ArtifactType_name = "bf2demoprdemosummary"
 var _ArtifactType_index = [...]uint8{0, 7, 13, 20}
 
 func (i ArtifactType) String() string {
-	if i < 0 || i >= ArtifactType(len(_ArtifactType_index)-1) {
+	idx := int(i) - 0
+	if i < 0 || idx >= len(_ArtifactType_index)-1 {
 		return "ArtifactType(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _ArtifactType_name[_ArtifactType_index[i]:_ArtifactType_index[i+1]]
+	return _ArtifactType_name[_ArtifactType_index[idx]:_ArtifactType_index[idx+1]]
 }

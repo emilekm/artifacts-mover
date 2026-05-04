@@ -31,10 +31,10 @@ func (m *mockArtifactUploader) Upload(_ context.Context, a internal.Artifact) (i
 
 type mockRoundNotifier struct {
 	err       error
-	summaries []internal.RoundSummary
+	summaries []*internal.RoundSummary
 }
 
-func (m *mockRoundNotifier) Send(_ context.Context, s internal.RoundSummary) error {
+func (m *mockRoundNotifier) Send(_ context.Context, s *internal.RoundSummary) error {
 	if m.err != nil {
 		return m.err
 	}

@@ -16,7 +16,7 @@ import (
 //go:generate go run go.uber.org/mock/mockgen -source=./handler.go -destination=./handler_mock.go -package=internal Notifier
 
 type Notifier interface {
-	Send(context.Context, RoundSummary) error
+	Send(context.Context, *RoundSummary) error
 }
 
 type Round map[config.ArtifactType]Artifact

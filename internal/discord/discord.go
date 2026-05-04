@@ -43,7 +43,7 @@ func New(session discordSession, channelID string, typToURL map[string]string) (
 	}, nil
 }
 
-func (w *Client) Send(ctx context.Context, summary internal.RoundSummary) error {
+func (w *Client) Send(ctx context.Context, summary *internal.RoundSummary) error {
 	msg := &discordgo.MessageSend{
 		Files: make([]*discordgo.File, 0),
 	}
@@ -84,7 +84,7 @@ func (w *Client) Send(ctx context.Context, summary internal.RoundSummary) error 
 		})
 	}
 
-	imgReader, err := createImage(&summary)
+	imgReader, err := createImage(summary)
 	if err != nil {
 		slog.Warn("failed to create summary image", "err", err)
 	} else {

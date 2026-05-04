@@ -138,10 +138,10 @@ func (p *RoundProcessor) retryNotification(ctx context.Context, record RoundReco
 	return p.store.RecordNotified(p.serverID, record.RoundKey)
 }
 
-func (p *RoundProcessor) buildSummary(summaryPath, prDemoPath string, remoteRefs map[config.ArtifactType]RemoteRef) (RoundSummary, error) {
+func (p *RoundProcessor) buildSummary(summaryPath, prDemoPath string, remoteRefs map[config.ArtifactType]RemoteRef) (*RoundSummary, error) {
 	summary, err := ParseSummary(summaryPath)
 	if err != nil {
-		return RoundSummary{}, err
+		return nil, err
 	}
 
 	if prDemoPath != "" {

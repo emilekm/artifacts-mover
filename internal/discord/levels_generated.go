@@ -4,7 +4,6 @@ package discord
 var levels = map[string]level{
 	"adak": {Name: "Adak - BETA", Key: "adak", Size: 4},
 	"albasrah_2": {Name: "Al Basrah", Key: "albasrah_2", Size: 2},
-	"andromeda": {Name: "Andromeda", Key: "andromeda", Size: 0},
 	"asad_khal": {Name: "Asad Khal", Key: "asad_khal", Size: 1},
 	"ascheberg": {Name: "Ascheberg", Key: "ascheberg", Size: 4},
 	"assault_on_grozny": {Name: "Assault on Grozny", Key: "assault_on_grozny", Size: 2},
@@ -33,6 +32,7 @@ var levels = map[string]level{
 	"grostok": {Name: "Grostok", Key: "grostok", Size: 1},
 	"hades_peak": {Name: "Hades Peak", Key: "hades_peak", Size: 4},
 	"hill_488": {Name: "Hill 488", Key: "hill_488", Size: 1},
+	"icebreaker": {Name: "Icebreaker", Key: "icebreaker", Size: 4},
 	"iron_ridge": {Name: "Iron Ridge", Key: "iron_ridge", Size: 2},
 	"kafar_halab": {Name: "Kafr Halab", Key: "kafar_halab", Size: 2},
 	"karbala": {Name: "Karbala", Key: "karbala", Size: 2},
@@ -76,6 +76,7 @@ var levels = map[string]level{
 	"stalingrad": {Name: "Stalingrad", Key: "stalingrad", Size: 2},
 	"stalingrad_summer": {Name: "Stalingrad Summer", Key: "stalingrad_summer", Size: 2},
 	"tad_sae": {Name: "Tad Sae Offensive", Key: "tad_sae", Size: 1},
+	"talbisah": {Name: "Talbisah", Key: "talbisah", Size: 2},
 	"the_falklands": {Name: "The Falklands", Key: "the_falklands", Size: 8},
 	"ulyanovsk": {Name: "Ulyanovsk", Key: "ulyanovsk", Size: 2},
 	"vadso_city": {Name: "Vadso City", Key: "vadso_city", Size: 4},

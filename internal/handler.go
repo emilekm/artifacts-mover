@@ -87,7 +87,7 @@ func (h *Handler) handleFile(artifact Artifact) {
 
 	h.currentRound[artifact.Type] = artifact
 
-	if len(h.currentRound) == h.typesCount {
+	if artifact.Type != config.ArtifactTypeBF2Demo && len(h.currentRound) == h.typesCount {
 		h.endCurrentRoundLocked()
 		return
 	}

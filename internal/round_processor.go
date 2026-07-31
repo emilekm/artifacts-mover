@@ -255,17 +255,9 @@ func (p *RoundProcessor) remoteRef(typKey, filename string) string {
 }
 
 func (p *RoundProcessor) cleanupArtifacts(round Round) {
-	for typ, artifact := range round {
-		cfg := p.artifactsConfig[typ]
-		if cfg.MovePath != nil {
-			dst := filepath.Join(*cfg.MovePath, filepath.Base(artifact.Path))
-			if err := move(artifact.Path, dst); err != nil {
-				slog.Error("failed to move artifact", "src", artifact.Path, "dst", dst, "err", err)
-			}
-		} else {
-			if err := os.Remove(artifact.Path); err != nil {
-				slog.Error("failed to remove artifact", "path", artifact.Path, "err", err)
-			}
+	for _, artifact := range round {
+		if err := os.Remove(artifact.Path); err != nil {
+			slog.Error("failed to remove artifact", "path", artifact.Path, "err", err)
 		}
 	}
 }

@@ -261,39 +261,3 @@ func TestRoundProcessor_CleanupAfterProcess_DeletesArtifacts(t *testing.T) {
 	assert.NoFileExists(t, prDemoPath)
 	assert.NoFileExists(t, summaryPath)
 }
-
-func TestRoundProcessor_CleanupAfterProcess_MovesArtifacts(t *testing.T) {
-	srcDir := t.TempDir()
-	dstDir := t.TempDir()
-
-	prDemoPath := filepath.Join(srcDir, "round_001.prdemo")
-	summaryPath := filepath.Join(srcDir, "valid_summary.json")
-
-	require.NoError(t, os.WriteFile(prDemoPath, []byte("prdemo"), 0644))
-	summaryContent, err := os.ReadFile("testdata/valid_summary.json")
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(summaryPath, summaryContent, 0644))
-
-	store := newTestStore(t)
-	notifier := &mockRoundNotifier{}
-
-	dstDirStr := dstDir
-	cfg := config.ArtifactsConfig{
-		config.ArtifactTypePRDemo:  config.Location{Location: srcDir, UploadPath: "prdemos", MovePath: &dstDirStr},
-		config.ArtifactTypeSummary: config.Location{Location: srcDir, UploadPath: "summaries", MovePath: &dstDirStr},
-	}
-
-	proc := NewRoundProcessor(testLogger(t), "server1", &mockArtifactUploader{}, store, notifier, cfg, nil)
-
-	round := Round{
-		config.ArtifactTypePRDemo:  Artifact{Path: prDemoPath, Type: config.ArtifactTypePRDemo},
-		config.ArtifactTypeSummary: Artifact{Path: summaryPath, Type: config.ArtifactTypeSummary},
-	}
-
-	proc.Process(context.Background(), round)
-
-	assert.NoFileExists(t, prDemoPath)
-	assert.NoFileExists(t, summaryPath)
-	assert.FileExists(t, filepath.Join(dstDir, "round_001.prdemo"))
-	assert.FileExists(t, filepath.Join(dstDir, "valid_summary.json"))
-}

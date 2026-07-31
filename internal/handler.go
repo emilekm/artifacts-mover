@@ -2,9 +2,7 @@ package internal
 
 import (
 	"context"
-	"io"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -136,47 +134,4 @@ func (h *Handler) Close() {
 		h.roundTimer.Stop()
 		h.roundTimer = nil
 	}
-}
-
-// move tries to rename source to destination.
-// Falls back to copy+delete on cross-device moves.
-func move(source, destination string) error {
-	err := os.Rename(source, destination)
-	if err != nil {
-		return moveCrossDevice(source, destination)
-	}
-	return nil
-}
-
-func moveCrossDevice(source, destination string) error {
-	src, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	dst, err := os.Create(destination)
-	if err != nil {
-		src.Close()
-		return err
-	}
-	_, err = io.Copy(dst, src)
-	src.Close()
-	dst.Close()
-	if err != nil {
-		return err
-	}
-	fi, err := src.Stat()
-	if err != nil {
-		if err := os.Remove(destination); err != nil {
-			return err
-		}
-		return err
-	}
-	err = os.Chmod(destination, fi.Mode())
-	if err != nil {
-		if err := os.Remove(destination); err != nil {
-			return err
-		}
-		return err
-	}
-	return os.Remove(source)
 }

@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -109,7 +110,7 @@ func TestHandler(t *testing.T) {
 			t.Run(test.name, func(t *testing.T) {
 				rc := newRoundCapture(len(test.expectedRounds))
 
-				handler, err := NewHandler(rc.process, test.artifactsConfig, 0)
+				handler, err := NewHandler(testLogger(t), rc.process, test.artifactsConfig, 0)
 				require.NoError(t, err)
 
 				for _, file := range test.files {
@@ -166,3 +167,9 @@ func prepareRound(artifacts map[config.ArtifactType]string) Round {
 	return round
 }
 
+func testLogger(t *testing.T) *slog.Logger {
+	t.Helper()
+	opts := &slog.HandlerOptions{AddSource: true}
+	log := slog.New(slog.NewTextHandler(t.Output(), opts))
+	return log
+}

@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -22,10 +21,10 @@ type Notifier interface {
 type Round map[config.ArtifactType]Artifact
 
 type Handler struct {
-	process         func(Round)
-	artifactsConfig config.ArtifactsConfig
-	locToTyp        map[string]config.ArtifactType
-	roundTimeout    time.Duration
+	logger       *slog.Logger
+	process      func(Round)
+	locToTyp     map[string]config.ArtifactType
+	roundTimeout time.Duration
 
 	typesCount int
 
@@ -37,6 +36,7 @@ type Handler struct {
 }
 
 func NewHandler(
+	logger *slog.Logger,
 	process func(Round),
 	artifactsConfig config.ArtifactsConfig,
 	roundTimeout time.Duration,
@@ -48,29 +48,23 @@ func NewHandler(
 	}
 
 	return &Handler{
-		process:         process,
-		artifactsConfig: artifactsConfig,
-		locToTyp:        locToType,
-		roundTimeout:    roundTimeout,
-		typesCount:      len(locToType),
-		currentRound:    make(Round),
+		logger:       logger,
+		process:      process,
+		locToTyp:     locToType,
+		roundTimeout: roundTimeout,
+		typesCount:   len(locToType),
+		currentRound: make(Round),
 	}, nil
 }
 
 func (h *Handler) OnFileCreate(path string) {
-	log := slog.With("op", "Handler.OnFileCreate")
-
 	path = filepath.Clean(path)
-
-	log.Debug("Received file create event", "path", path)
 
 	typ, ok := h.locToTyp[filepath.Dir(path)]
 	if !ok {
-		log.Error("No related type to path", "path", path)
+		h.logger.LogAttrs(context.TODO(), slog.LevelWarn, "handler: no related type to path", slog.String("path", path))
 		return
 	}
-
-	log.Debug(fmt.Sprintf("File type %s", typ), "path", path, "type", typ)
 
 	h.handleFile(Artifact{
 		Path: path,
@@ -106,7 +100,7 @@ func (h *Handler) startRoundTimer() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		if len(h.currentRound) > 0 {
-			slog.Warn("Round timeout reached, ending incomplete round", "files", len(h.currentRound))
+			h.logger.LogAttrs(context.TODO(), slog.LevelWarn, "handler: round timeout reached", slog.Int("files", len(h.currentRound)))
 			h.endCurrentRoundLocked()
 		}
 	})

@@ -18,11 +18,15 @@ type Notifier interface {
 	Send(context.Context, *RoundSummary) error
 }
 
+type Processor interface {
+	Process(context.Context, Round)
+}
+
 type Round map[config.ArtifactType]Artifact
 
 type Handler struct {
 	logger       *slog.Logger
-	process      func(Round)
+	processor    Processor
 	locToTyp     map[string]config.ArtifactType
 	roundTimeout time.Duration
 
@@ -37,7 +41,7 @@ type Handler struct {
 
 func NewHandler(
 	logger *slog.Logger,
-	process func(Round),
+	processor Processor,
 	artifactsConfig config.ArtifactsConfig,
 	roundTimeout time.Duration,
 ) (*Handler, error) {
@@ -49,7 +53,7 @@ func NewHandler(
 
 	return &Handler{
 		logger:       logger,
-		process:      process,
+		processor:    processor,
 		locToTyp:     locToType,
 		roundTimeout: roundTimeout,
 		typesCount:   len(locToType),
@@ -119,7 +123,7 @@ func (h *Handler) endCurrentRoundLocked() {
 	round := h.currentRound
 	h.currentRound = make(Round)
 
-	go h.process(round)
+	go h.processor.Process(context.TODO(), round)
 }
 
 func (h *Handler) Close() {

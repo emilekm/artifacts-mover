@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"testing"
@@ -110,7 +111,7 @@ func TestHandler(t *testing.T) {
 			t.Run(test.name, func(t *testing.T) {
 				rc := newRoundCapture(len(test.expectedRounds))
 
-				handler, err := NewHandler(testLogger(t), rc.process, test.artifactsConfig, 0)
+				handler, err := NewHandler(testLogger(t), rc, test.artifactsConfig, 0)
 				require.NoError(t, err)
 
 				for _, file := range test.files {
@@ -138,7 +139,7 @@ func newRoundCapture(n int) *roundCapture {
 	return rc
 }
 
-func (rc *roundCapture) process(r Round) {
+func (rc *roundCapture) Process(_ context.Context, r Round) {
 	rc.mu.Lock()
 	rc.rounds = append(rc.rounds, r)
 	rc.mu.Unlock()

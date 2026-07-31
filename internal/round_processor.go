@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/config"
+	applog "github.com/emilekm/artifacts-mover/internal/log"
 )
 
 type RoundProcessor struct {
+	logger          *slog.Logger
 	serverID        string
 	uploader        Uploader
 	store           StateStore
@@ -22,6 +24,7 @@ type RoundProcessor struct {
 }
 
 func NewRoundProcessor(
+	logger *slog.Logger,
 	serverID string,
 	uploader Uploader,
 	store StateStore,
@@ -30,6 +33,7 @@ func NewRoundProcessor(
 	discordURLs map[string]string,
 ) *RoundProcessor {
 	return &RoundProcessor{
+		logger:          logger,
 		serverID:        serverID,
 		uploader:        uploader,
 		store:           store,
@@ -39,7 +43,7 @@ func NewRoundProcessor(
 	}
 }
 
-func (p *RoundProcessor) Process(ctx context.Context, round Round) error {
+func (p *RoundProcessor) Process(ctx context.Context, round Round) {
 	roundKey := time.Now().UTC().Format("20060102-150405.000")
 
 	remoteRefs := make(map[config.ArtifactType]RemoteRef)
@@ -49,7 +53,15 @@ func (p *RoundProcessor) Process(ctx context.Context, round Round) error {
 		artifact.UploadPath = p.artifactsConfig[typ].UploadPath
 
 		if err := p.uploader.Upload(ctx, artifact); err != nil {
-			return err
+			p.logger.LogAttrs(
+				ctx, slog.LevelError,
+				"round_processor: failed to upload artifact",
+				applog.ServerID(p.serverID),
+				applog.RoundKey(roundKey),
+				applog.ArtifactType(typ),
+				applog.Error(err),
+			)
+			return
 		}
 
 		filename := filepath.Base(artifact.Path)
@@ -60,7 +72,15 @@ func (p *RoundProcessor) Process(ctx context.Context, round Round) error {
 			Type:      typ,
 			RemoteRef: ref,
 		}); err != nil {
-			return err
+			p.logger.LogAttrs(
+				ctx, slog.LevelError,
+				"round_processor: failed to record upload",
+				applog.ServerID(p.serverID),
+				applog.RoundKey(roundKey),
+				applog.ArtifactType(typ),
+				applog.Error(err),
+			)
+			return
 		}
 
 		if ref != "" {
@@ -77,19 +97,39 @@ func (p *RoundProcessor) Process(ctx context.Context, round Round) error {
 
 	summary, err := p.buildSummary(summaryPath, prDemoPath, remoteRefs)
 	if err != nil {
-		return err
+		p.logger.LogAttrs(
+			ctx, slog.LevelError,
+			"round_processor: failed to build round summary",
+			applog.ServerID(p.serverID),
+			applog.RoundKey(roundKey),
+			applog.Error(err),
+		)
+		return
 	}
 
 	if err := p.notifier.Send(ctx, summary); err != nil {
-		return err
+		p.logger.LogAttrs(
+			ctx, slog.LevelError,
+			"round_processor: failed to send notification",
+			applog.ServerID(p.serverID),
+			applog.RoundKey(roundKey),
+			applog.Error(err),
+		)
+		return
 	}
 
 	if err := p.store.RecordNotified(p.serverID, roundKey); err != nil {
-		return err
+		p.logger.LogAttrs(
+			ctx, slog.LevelError,
+			"round_processor: failed to record notified",
+			applog.ServerID(p.serverID),
+			applog.RoundKey(roundKey),
+			applog.Error(err),
+		)
+		return
 	}
 
 	p.cleanupArtifacts(round)
-	return nil
 }
 
 // ReplayUnnotified retries Discord notifications for rounds that were fully
@@ -201,9 +241,7 @@ func (p *RoundProcessor) UploadOldFiles(ctx context.Context) error {
 		if len(round) == 0 {
 			continue
 		}
-		if err := p.Process(ctx, round); err != nil {
-			slog.Error("failed to process old round", "index", i, "err", err)
-		}
+		p.Process(ctx, round)
 	}
 
 	return nil

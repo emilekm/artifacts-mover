@@ -1,4 +1,4 @@
-package internal_test
+package internal
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/emilekm/artifacts-mover/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,10 +17,10 @@ import (
 
 type mockArtifactUploader struct {
 	err      error
-	uploaded []internal.Artifact
+	uploaded []Artifact
 }
 
-func (m *mockArtifactUploader) Upload(_ context.Context, a internal.Artifact) error {
+func (m *mockArtifactUploader) Upload(_ context.Context, a Artifact) error {
 	if m.err != nil {
 		return m.err
 	}
@@ -31,10 +30,10 @@ func (m *mockArtifactUploader) Upload(_ context.Context, a internal.Artifact) er
 
 type mockRoundNotifier struct {
 	err       error
-	summaries []*internal.RoundSummary
+	summaries []*RoundSummary
 }
 
-func (m *mockRoundNotifier) Send(_ context.Context, s *internal.RoundSummary) error {
+func (m *mockRoundNotifier) Send(_ context.Context, s *RoundSummary) error {
 	if m.err != nil {
 		return m.err
 	}
@@ -56,7 +55,7 @@ var testDiscordURLs = map[string]string{
 
 // twoArtifactRound creates a round with a per-test temp copy of the summary
 // fixture so that cleanupArtifacts doesn't delete the shared testdata file.
-func twoArtifactRound(t *testing.T) internal.Round {
+func twoArtifactRound(t *testing.T) Round {
 	t.Helper()
 	dir := t.TempDir()
 	summaryContent, err := os.ReadFile("testdata/valid_summary.json")
@@ -64,12 +63,12 @@ func twoArtifactRound(t *testing.T) internal.Round {
 	summaryPath := filepath.Join(dir, "valid_summary.json")
 	require.NoError(t, os.WriteFile(summaryPath, summaryContent, 0644))
 
-	return internal.Round{
-		config.ArtifactTypePRDemo: internal.Artifact{
+	return Round{
+		config.ArtifactTypePRDemo: Artifact{
 			Path: "/watch/prdemos/round_001.prdemo",
 			Type: config.ArtifactTypePRDemo,
 		},
-		config.ArtifactTypeSummary: internal.Artifact{
+		config.ArtifactTypeSummary: Artifact{
 			Path: summaryPath,
 			Type: config.ArtifactTypeSummary,
 		},
@@ -83,10 +82,9 @@ func TestRoundProcessor_ResolvesUploadPathFromConfig(t *testing.T) {
 	uploader := &mockArtifactUploader{}
 	notifier := &mockRoundNotifier{}
 
-	proc := internal.NewRoundProcessor("server1", uploader, store, notifier, testArtifactsConfig, nil)
+	proc := NewRoundProcessor(testLogger(t), "server1", uploader, store, notifier, testArtifactsConfig, nil)
 
-	err := proc.Process(context.Background(), twoArtifactRound(t))
-	require.NoError(t, err)
+	proc.Process(context.Background(), twoArtifactRound(t))
 
 	require.Len(t, uploader.uploaded, 2)
 	uploadedByPath := make(map[string]string)
@@ -102,10 +100,9 @@ func TestRoundProcessor_UploadFails_DoesNotNotify(t *testing.T) {
 	uploader := &mockArtifactUploader{err: errors.New("scp: connection refused")}
 	notifier := &mockRoundNotifier{}
 
-	proc := internal.NewRoundProcessor("server1", uploader, store, notifier, testArtifactsConfig, nil)
+	proc := NewRoundProcessor(testLogger(t), "server1", uploader, store, notifier, testArtifactsConfig, nil)
 
-	err := proc.Process(context.Background(), twoArtifactRound(t))
-	require.Error(t, err)
+	proc.Process(context.Background(), twoArtifactRound(t))
 
 	assert.Empty(t, notifier.summaries)
 }
@@ -115,10 +112,9 @@ func TestRoundProcessor_NotifyFails_UploadsStoredButRoundRemainsUnnotified(t *te
 	uploader := &mockArtifactUploader{}
 	notifier := &mockRoundNotifier{err: errors.New("discord: rate limited")}
 
-	proc := internal.NewRoundProcessor("server1", uploader, store, notifier, testArtifactsConfig, nil)
+	proc := NewRoundProcessor(testLogger(t), "server1", uploader, store, notifier, testArtifactsConfig, nil)
 
-	err := proc.Process(context.Background(), twoArtifactRound(t))
-	require.Error(t, err)
+	proc.Process(context.Background(), twoArtifactRound(t))
 
 	// round was uploaded but not notified → must appear in unnotified query
 	records, err := store.QueryUnnotified("server1", time.Time{})
@@ -133,10 +129,9 @@ func TestRoundProcessor_AllUploadsSucceed_NotifiesAndRecordsState(t *testing.T) 
 	uploader := &mockArtifactUploader{}
 	notifier := &mockRoundNotifier{}
 
-	proc := internal.NewRoundProcessor("server1", uploader, store, notifier, testArtifactsConfig, nil)
+	proc := NewRoundProcessor(testLogger(t), "server1", uploader, store, notifier, testArtifactsConfig, nil)
 
-	err := proc.Process(context.Background(), twoArtifactRound(t))
-	require.NoError(t, err)
+	proc.Process(context.Background(), twoArtifactRound(t))
 
 	assert.Len(t, notifier.summaries, 1)
 
@@ -151,10 +146,9 @@ func TestRoundProcessor_PassesRoundSummaryToNotifier(t *testing.T) {
 	uploader := &mockArtifactUploader{}
 	notifier := &mockRoundNotifier{}
 
-	proc := internal.NewRoundProcessor("server1", uploader, store, notifier, testArtifactsConfig, testDiscordURLs)
+	proc := NewRoundProcessor(testLogger(t), "server1", uploader, store, notifier, testArtifactsConfig, testDiscordURLs)
 
-	err := proc.Process(context.Background(), twoArtifactRound(t))
-	require.NoError(t, err)
+	proc.Process(context.Background(), twoArtifactRound(t))
 
 	require.Len(t, notifier.summaries, 1)
 	s := notifier.summaries[0]
@@ -187,7 +181,7 @@ func TestRoundProcessor_UploadOldFiles_PairsFilesByIndex(t *testing.T) {
 		config.ArtifactTypePRDemo:  config.Location{Location: prDemoDir, UploadPath: "prdemos"},
 	}
 
-	proc := internal.NewRoundProcessor("server1", &mockArtifactUploader{}, store, notifier, cfg, nil)
+	proc := NewRoundProcessor(testLogger(t), "server1", &mockArtifactUploader{}, store, notifier, cfg, nil)
 
 	require.NoError(t, proc.UploadOldFiles(context.Background()))
 
@@ -204,12 +198,12 @@ func TestRoundProcessor_ReplayUnnotified_RetriesAndMarksNotified(t *testing.T) {
 	// Pre-populate state: a round that was uploaded but never notified.
 	// "valid_summary.json" lives in testdata/ so ParseSummary can read it.
 	roundKey := "20260503-000000.000"
-	require.NoError(t, store.RecordUpload("server1", roundKey, internal.UploadedArtifact{
+	require.NoError(t, store.RecordUpload("server1", roundKey, UploadedArtifact{
 		Filename:  "valid_summary.json",
 		Type:      config.ArtifactTypeSummary,
 		RemoteRef: "https://remote/summaries/valid_summary.json",
 	}))
-	require.NoError(t, store.RecordUpload("server1", roundKey, internal.UploadedArtifact{
+	require.NoError(t, store.RecordUpload("server1", roundKey, UploadedArtifact{
 		Filename:  "round_001.prdemo",
 		Type:      config.ArtifactTypePRDemo,
 		RemoteRef: "https://remote/prdemos/round_001.prdemo",
@@ -221,7 +215,7 @@ func TestRoundProcessor_ReplayUnnotified_RetriesAndMarksNotified(t *testing.T) {
 		config.ArtifactTypePRDemo:  config.Location{Location: "/nonexistent", UploadPath: "prdemos"},
 	}
 
-	proc := internal.NewRoundProcessor("server1", &mockArtifactUploader{}, store, notifier, cfg, nil)
+	proc := NewRoundProcessor(testLogger(t), "server1", &mockArtifactUploader{}, store, notifier, cfg, nil)
 
 	err := proc.ReplayUnnotified(context.Background(), time.Time{})
 	require.NoError(t, err)
@@ -255,14 +249,14 @@ func TestRoundProcessor_CleanupAfterProcess_DeletesArtifacts(t *testing.T) {
 		config.ArtifactTypeSummary: config.Location{Location: dir, UploadPath: "summaries"},
 	}
 
-	proc := internal.NewRoundProcessor("server1", &mockArtifactUploader{}, store, notifier, cfg, nil)
+	proc := NewRoundProcessor(testLogger(t), "server1", &mockArtifactUploader{}, store, notifier, cfg, nil)
 
-	round := internal.Round{
-		config.ArtifactTypePRDemo:  internal.Artifact{Path: prDemoPath, Type: config.ArtifactTypePRDemo},
-		config.ArtifactTypeSummary: internal.Artifact{Path: summaryPath, Type: config.ArtifactTypeSummary},
+	round := Round{
+		config.ArtifactTypePRDemo:  Artifact{Path: prDemoPath, Type: config.ArtifactTypePRDemo},
+		config.ArtifactTypeSummary: Artifact{Path: summaryPath, Type: config.ArtifactTypeSummary},
 	}
 
-	require.NoError(t, proc.Process(context.Background(), round))
+	proc.Process(context.Background(), round)
 
 	assert.NoFileExists(t, prDemoPath)
 	assert.NoFileExists(t, summaryPath)
@@ -289,14 +283,14 @@ func TestRoundProcessor_CleanupAfterProcess_MovesArtifacts(t *testing.T) {
 		config.ArtifactTypeSummary: config.Location{Location: srcDir, UploadPath: "summaries", MovePath: &dstDirStr},
 	}
 
-	proc := internal.NewRoundProcessor("server1", &mockArtifactUploader{}, store, notifier, cfg, nil)
+	proc := NewRoundProcessor(testLogger(t), "server1", &mockArtifactUploader{}, store, notifier, cfg, nil)
 
-	round := internal.Round{
-		config.ArtifactTypePRDemo:  internal.Artifact{Path: prDemoPath, Type: config.ArtifactTypePRDemo},
-		config.ArtifactTypeSummary: internal.Artifact{Path: summaryPath, Type: config.ArtifactTypeSummary},
+	round := Round{
+		config.ArtifactTypePRDemo:  Artifact{Path: prDemoPath, Type: config.ArtifactTypePRDemo},
+		config.ArtifactTypeSummary: Artifact{Path: summaryPath, Type: config.ArtifactTypeSummary},
 	}
 
-	require.NoError(t, proc.Process(context.Background(), round))
+	proc.Process(context.Background(), round)
 
 	assert.NoFileExists(t, prDemoPath)
 	assert.NoFileExists(t, summaryPath)

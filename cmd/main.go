@@ -108,21 +108,14 @@ func run(ctx context.Context, confPath string) error {
 			return err
 		}
 
-		processor := internal.NewRoundProcessor(name, uploader, store, discordClient, server.Artifacts, server.Discord.URLS)
+		processor := internal.NewRoundProcessor(logger, name, uploader, store, discordClient, server.Artifacts, server.Discord.URLS)
 
 		roundTimeout := server.RoundTimeout
 		if roundTimeout == 0 {
 			roundTimeout = defaultRoundTimer
 		}
 
-		serverName := name
-		handler, err := internal.NewHandler(logger, func(round internal.Round) {
-			go func() {
-				if err := processor.Process(ctx, round); err != nil {
-					slog.Error("failed to process round", "server", serverName, "err", err)
-				}
-			}()
-		}, server.Artifacts, roundTimeout)
+		handler, err := internal.NewHandler(logger, processor, server.Artifacts, roundTimeout)
 		if err != nil {
 			return err
 		}

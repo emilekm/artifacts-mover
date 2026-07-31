@@ -1,19 +1,18 @@
-package internal_test
+package internal
 
 import (
 	"testing"
 	"time"
 
-	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/emilekm/artifacts-mover/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestStore(t *testing.T) internal.StateStore {
+func newTestStore(t *testing.T) StateStore {
 	t.Helper()
 	path := t.TempDir() + "/state.db"
-	store, err := internal.NewBboltStateStore(path)
+	store, err := NewBboltStateStore(path)
 	require.NoError(t, err)
 	t.Cleanup(func() { store.Close() })
 	return store
@@ -22,8 +21,8 @@ func newTestStore(t *testing.T) internal.StateStore {
 func TestStateStore_RecordUpload_AppendsArtifactsToExistingRound(t *testing.T) {
 	store := newTestStore(t)
 
-	a1 := internal.UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
-	a2 := internal.UploadedArtifact{Filename: "round_001.prdemo", Type: config.ArtifactTypePRDemo, RemoteRef: "https://example.com/a.prdemo"}
+	a1 := UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
+	a2 := UploadedArtifact{Filename: "round_001.prdemo", Type: config.ArtifactTypePRDemo, RemoteRef: "https://example.com/a.prdemo"}
 
 	require.NoError(t, store.RecordUpload("server1", "20250503-142301", a1))
 	require.NoError(t, store.RecordUpload("server1", "20250503-142301", a2))
@@ -31,13 +30,13 @@ func TestStateStore_RecordUpload_AppendsArtifactsToExistingRound(t *testing.T) {
 	records, err := store.QueryUnnotified("server1", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, records, 1)
-	assert.Equal(t, []internal.UploadedArtifact{a1, a2}, records[0].Artifacts)
+	assert.Equal(t, []UploadedArtifact{a1, a2}, records[0].Artifacts)
 }
 
 func TestStateStore_RecordNotified_ExcludesFromQueryUnnotified(t *testing.T) {
 	store := newTestStore(t)
 
-	artifact := internal.UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
+	artifact := UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
 	require.NoError(t, store.RecordUpload("server1", "20250503-142301", artifact))
 	require.NoError(t, store.RecordNotified("server1", "20250503-142301"))
 
@@ -49,7 +48,7 @@ func TestStateStore_RecordNotified_ExcludesFromQueryUnnotified(t *testing.T) {
 func TestStateStore_QueryUnnotified_FiltersOlderThanSince(t *testing.T) {
 	store := newTestStore(t)
 
-	artifact := internal.UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
+	artifact := UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
 	require.NoError(t, store.RecordUpload("server1", "20250503-120000", artifact))
 
 	// since = 1 minute in the future → record created just now is before since → excluded
@@ -62,7 +61,7 @@ func TestStateStore_QueryUnnotified_FiltersOlderThanSince(t *testing.T) {
 func TestStateStore_QueryUnnotified_IncludesRecordsAfterSince(t *testing.T) {
 	store := newTestStore(t)
 
-	artifact := internal.UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
+	artifact := UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
 	require.NoError(t, store.RecordUpload("server1", "20250503-120000", artifact))
 
 	// since = 1 hour ago → record created just now is within window → included
@@ -76,7 +75,7 @@ func TestStateStore_QueryUnnotified_IncludesRecordsAfterSince(t *testing.T) {
 func TestStateStore_PurgeCompleted_RemovesOldNotifiedRecords(t *testing.T) {
 	store := newTestStore(t)
 
-	artifact := internal.UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
+	artifact := UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
 	require.NoError(t, store.RecordUpload("server1", "20250503-120000", artifact))
 	require.NoError(t, store.RecordNotified("server1", "20250503-120000"))
 
@@ -96,7 +95,7 @@ func TestStateStore_PurgeCompleted_RemovesOldNotifiedRecords(t *testing.T) {
 func TestStateStore_PurgeCompleted_LeavesUncompleteAndNewRecords(t *testing.T) {
 	store := newTestStore(t)
 
-	artifact := internal.UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
+	artifact := UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
 
 	// notified but recent — should survive purge
 	require.NoError(t, store.RecordUpload("server1", "20250503-120001", artifact))
@@ -119,7 +118,7 @@ func TestStateStore_PurgeCompleted_LeavesUncompleteAndNewRecords(t *testing.T) {
 func TestStateStore_QueryUnnotified_ScopedToServerID(t *testing.T) {
 	store := newTestStore(t)
 
-	artifact := internal.UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
+	artifact := UploadedArtifact{Filename: "round_001.bf2demo", Type: config.ArtifactTypeBF2Demo, RemoteRef: "https://example.com/a.bf2demo"}
 	require.NoError(t, store.RecordUpload("server1", "20250503-120000", artifact))
 	require.NoError(t, store.RecordUpload("server2", "20250503-120001", artifact))
 
@@ -132,7 +131,7 @@ func TestStateStore_QueryUnnotified_ScopedToServerID(t *testing.T) {
 func TestStateStore_RecordUpload_AppearsInQueryUnnotified(t *testing.T) {
 	store := newTestStore(t)
 
-	artifact := internal.UploadedArtifact{
+	artifact := UploadedArtifact{
 		Filename:  "round_001.bf2demo",
 		Type:      config.ArtifactTypeBF2Demo,
 		RemoteRef: "https://example.com/round_001.bf2demo",

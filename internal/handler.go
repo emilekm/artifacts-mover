@@ -33,8 +33,6 @@ type Handler struct {
 	mu           sync.Mutex
 	currentRound Round
 	roundTimer   *time.Timer
-	ctx          context.Context
-	cancel       context.CancelFunc
 }
 
 func NewHandler(
@@ -125,8 +123,6 @@ func (h *Handler) endCurrentRoundLocked() {
 }
 
 func (h *Handler) Close() {
-	h.cancel()
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
 

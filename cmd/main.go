@@ -83,9 +83,9 @@ func run(ctx context.Context, confPath string) error {
 	w := internal.NewWatcher(logger)
 
 	type serverEntry struct {
-		handler   *internal.Handler
-		processor *internal.RoundProcessor
-		paths     []string
+		handler  *internal.Handler
+		recovery *internal.Recovery
+		paths    []string
 	}
 	entries := make([]serverEntry, 0, len(conf.Servers))
 
@@ -108,7 +108,8 @@ func run(ctx context.Context, confPath string) error {
 			return err
 		}
 
-		processor := internal.NewRoundProcessor(logger, name, uploader, store, discordClient, server.Artifacts, server.Discord.URLS)
+		summaries := internal.NewSummaryBuilder(logger, server.Discord.URLS)
+		processor := internal.NewRoundProcessor(logger, name, uploader, store, discordClient, summaries, server.Artifacts)
 
 		roundTimeout := server.RoundTimeout
 		if roundTimeout == 0 {
@@ -120,12 +121,14 @@ func run(ctx context.Context, confPath string) error {
 			return err
 		}
 
+		recovery := internal.NewRecovery(logger, name, store, handler, summaries, discordClient, server.Artifacts)
+
 		paths := make([]string, 0, len(server.Artifacts))
 		for _, loc := range server.Artifacts {
 			paths = append(paths, loc.Location)
 		}
 
-		entries = append(entries, serverEntry{handler, processor, paths})
+		entries = append(entries, serverEntry{handler, recovery, paths})
 	}
 
 	blockCh := make(chan struct{})
@@ -154,11 +157,11 @@ func run(ctx context.Context, confPath string) error {
 		defer e.handler.Close()
 		w.Register(e.paths, e.handler)
 
-		if err := e.processor.ReplayUnnotified(ctx, replaySince); err != nil {
+		if err := e.recovery.ReplayUnnotified(ctx, replaySince); err != nil {
 			slog.Error("failed to replay unnotified rounds", "error", err)
 		}
 
-		if err := e.processor.UploadOldFiles(ctx); err != nil {
+		if err := e.recovery.UploadOldFiles(ctx); err != nil {
 			slog.Error("failed to upload old files", "error", err)
 		}
 	}

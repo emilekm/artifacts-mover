@@ -27,8 +27,7 @@ type Handler struct {
 	locToTyp        map[string]config.ArtifactType
 	roundTimeout    time.Duration
 
-	bf2DemoOnly bool
-	typesCount  int
+	typesCount int
 
 	mu           sync.Mutex
 	currentRound Round
@@ -42,16 +41,10 @@ func NewHandler(
 	artifactsConfig config.ArtifactsConfig,
 	roundTimeout time.Duration,
 ) (*Handler, error) {
-	bf2DemoOnly := true
-
 	locToType := make(map[string]config.ArtifactType)
 
 	for typ, location := range artifactsConfig {
 		locToType[filepath.Clean(location.Location)] = typ
-
-		if typ != config.ArtifactTypeBF2Demo {
-			bf2DemoOnly = false
-		}
 	}
 
 	return &Handler{
@@ -59,7 +52,6 @@ func NewHandler(
 		artifactsConfig: artifactsConfig,
 		locToTyp:        locToType,
 		roundTimeout:    roundTimeout,
-		bf2DemoOnly:     bf2DemoOnly,
 		typesCount:      len(locToType),
 		currentRound:    make(Round),
 	}, nil

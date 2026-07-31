@@ -50,9 +50,14 @@ func run(ctx context.Context, confPath string) error {
 		return err
 	}
 
+	level := slog.LevelInfo
 	if debug := os.Getenv("DEBUG"); ok && debug == "true" {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
+		level = slog.LevelDebug
 	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: level,
+	}))
 
 	stateStorePath := conf.StateStorePath
 	if stateStorePath == "" {
@@ -75,7 +80,7 @@ func run(ctx context.Context, confPath string) error {
 		retryWindowHours = defaultNotifyRetryWindowH
 	}
 
-	w := internal.NewWatcher()
+	w := internal.NewWatcher(logger)
 
 	type serverEntry struct {
 		handler   *internal.Handler

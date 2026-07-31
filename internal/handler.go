@@ -87,37 +87,26 @@ func (h *Handler) OnFileCreate(path string) {
 }
 
 func (h *Handler) handleFile(artifact Artifact) {
-	log := slog.With("op", "Handler.handleFile", "path", artifact.Path, "type", artifact.Type)
-
-	log.Debug("Handling file")
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	if _, ok := h.currentRound[artifact.Type]; ok {
-		log.Debug("Type already in current round, ending")
 		h.endCurrentRoundLocked()
 	}
-
 	if artifact.Type == config.ArtifactTypeBF2Demo && len(h.currentRound) > 0 {
-		log.Debug("BF2 demo received, ending current round")
 		h.endCurrentRoundLocked()
 	}
 
-	if len(h.currentRound) == 0 && h.roundTimeout > 0 {
-		log.Debug("Starting round timeout", "timeout", h.roundTimeout)
-		h.startRoundTimer()
-	}
+	h.currentRound[artifact.Type] = artifact
 
-	if !h.bf2DemoOnly && len(h.currentRound) == h.typesCount-1 {
-		log.Debug("All types except one in current round, ending")
-		h.currentRound[artifact.Type] = artifact
+	if len(h.currentRound) == h.typesCount {
 		h.endCurrentRoundLocked()
 		return
 	}
 
-	log.Debug("Adding artifact to current round")
-	h.currentRound[artifact.Type] = artifact
+	if len(h.currentRound) == 1 && h.roundTimeout > 0 {
+		h.startRoundTimer()
+	}
 }
 
 func (h *Handler) startRoundTimer() {

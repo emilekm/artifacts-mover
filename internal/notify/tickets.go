@@ -1,10 +1,10 @@
-package internal
+package notify
 
 import "github.com/emilekm/go-prbf2/prdemo"
 
-// ExtractTickets reads the final ticket counts from a prdemo file.
+// extractTickets reads the final ticket counts from a prdemo file.
 // It returns the counts recorded immediately before the RoundEnd message.
-func ExtractTickets(prDemoPath string) (team1, team2 int16, err error) {
+func extractTickets(prDemoPath string) (team1, team2 int16, err error) {
 	demo, err := prdemo.NewDemoReaderFromFile(prDemoPath)
 	if err != nil {
 		return 0, 0, err

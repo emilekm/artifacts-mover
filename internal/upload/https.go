@@ -1,4 +1,4 @@
-package internal
+package upload
 
 import (
 	"context"
@@ -11,18 +11,25 @@ import (
 	"path/filepath"
 
 	"github.com/emilekm/artifacts-mover/internal/config"
+	"github.com/emilekm/artifacts-mover/internal/types"
 )
 
 type httpsUploader struct {
-	conf config.HTTPSConfig
+	conf        config.HTTPSConfig
+	uploadPaths map[types.ArtifactType]string
 }
 
-func NewHTTPSUploader(conf config.HTTPSConfig) *httpsUploader {
-	return &httpsUploader{conf: conf}
+func NewHTTPSUploader(conf config.HTTPSConfig, uploadPaths map[types.ArtifactType]string) *httpsUploader {
+	return &httpsUploader{conf: conf, uploadPaths: uploadPaths}
 }
 
-func (u *httpsUploader) Upload(ctx context.Context, artifact Artifact) error {
-	postURL, err := url.JoinPath(u.conf.URL, artifact.UploadPath)
+func (u *httpsUploader) Upload(ctx context.Context, artifact types.Artifact) error {
+	uploadPath, ok := u.uploadPaths[artifact.Type]
+	if !ok {
+		return fmt.Errorf("https_uploader: no upload path for artifact of type %q", artifact.Type)
+	}
+
+	postURL, err := url.JoinPath(u.conf.URL, uploadPath)
 	if err != nil {
 		return err
 	}

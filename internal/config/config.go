@@ -4,6 +4,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/emilekm/artifacts-mover/internal/types"
 	"github.com/goccy/go-yaml"
 )
 
@@ -44,11 +45,17 @@ type Location struct {
 	UploadPath string `yaml:"uploadPath"`
 }
 
-type ArtifactsConfig map[ArtifactType]Location
+type ArtifactsConfig map[types.ArtifactType]Location
+
+type RemoteURLs struct {
+	BF2Demo       string `yaml:"bf2demo"`
+	PRDemo        string `yaml:"prdemo"`
+	TrackerViewer string `yaml:"tracker"`
+}
 
 type Discord struct {
-	ChannelID string            `yaml:"channelID"`
-	URLS      map[string]string `yaml:"urls"`
+	ChannelID string     `yaml:"channelID"`
+	URLS      RemoteURLs `yaml:"urls"`
 }
 
 type Server struct {

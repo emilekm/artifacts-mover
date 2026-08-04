@@ -1,14 +1,10 @@
-package internal
+package notify
 
-import "github.com/emilekm/artifacts-mover/internal/config"
+import (
+	"io"
 
-type RemoteRef = string
-
-type Artifact struct {
-	Path       string
-	Type       config.ArtifactType
-	UploadPath string
-}
+	"github.com/emilekm/artifacts-mover/internal/config"
+)
 
 type Player struct {
 	Name  string
@@ -28,9 +24,11 @@ type JSONSummary struct {
 	Players      []Player `json:"Players"`
 }
 
-type RoundSummary struct {
+type Summary struct {
 	JSONSummary
 
 	PRDemoPath string
-	RemoteRefs map[config.ArtifactType]RemoteRef
+	PRDemoFile io.Reader
+	Image      io.Reader
+	RemoteRefs config.RemoteURLs
 }

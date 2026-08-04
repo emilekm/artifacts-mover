@@ -1,4 +1,4 @@
-package discord
+package notify
 
 import (
 	"bytes"
@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/emilekm/artifacts-mover/internal"
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
 )
@@ -36,7 +35,7 @@ const (
 //go:embed assets/*
 var assets embed.FS
 
-func createImage(summary *internal.RoundSummary) (io.Reader, error) {
+func createImage(summary *Summary) (io.Reader, error) {
 	dc := gg.NewContext(width, height)
 
 	details, ok := findMapDetails(summary)
@@ -106,8 +105,8 @@ func drawGGWinner(dc *gg.Context, winner string) error {
 	return nil
 }
 
-func findGGWinner(players []internal.Player) string {
-	var winner internal.Player
+func findGGWinner(players []Player) string {
+	var winner Player
 
 	for _, p := range players {
 		if p.Score > winner.Score {
@@ -118,7 +117,7 @@ func findGGWinner(players []internal.Player) string {
 	return winner.Name
 }
 
-func drawTickets(dc *gg.Context, summary *internal.RoundSummary) error {
+func drawTickets(dc *gg.Context, summary *Summary) error {
 	if err := setFont(dc, 34, fontTypeBold); err != nil {
 		return err
 	}
@@ -190,7 +189,7 @@ type mapDetails struct {
 	layer    string
 }
 
-func findMapDetails(summary *internal.RoundSummary) (mapDetails, bool) {
+func findMapDetails(summary *Summary) (mapDetails, bool) {
 	found := true
 
 	m, ok := levels[summary.MapName]

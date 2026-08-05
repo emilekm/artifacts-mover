@@ -1,4 +1,4 @@
-package discord
+package notify
 
 type gameMode struct {
 	Name  string

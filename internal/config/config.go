@@ -4,6 +4,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/emilekm/artifacts-mover/internal/types"
 	"github.com/goccy/go-yaml"
 )
 
@@ -40,16 +41,21 @@ type UploadConfig struct {
 }
 
 type Location struct {
-	Location   string  `yaml:"location"`
-	UploadPath string  `yaml:"uploadPath"`
-	MovePath   *string `yaml:"movePath,omitempty"`
+	Location   string `yaml:"location"`
+	UploadPath string `yaml:"uploadPath"`
 }
 
-type ArtifactsConfig map[ArtifactType]Location
+type ArtifactsConfig map[types.ArtifactType]Location
+
+type RemoteURLs struct {
+	BF2Demo       string `yaml:"bf2demo"`
+	PRDemo        string `yaml:"prdemo"`
+	TrackerViewer string `yaml:"tracker"`
+}
 
 type Discord struct {
-	ChannelID string            `yaml:"channelID"`
-	URLS      map[string]string `yaml:"urls"`
+	ChannelID string     `yaml:"channelID"`
+	URLS      RemoteURLs `yaml:"urls"`
 }
 
 type Server struct {
@@ -60,8 +66,10 @@ type Server struct {
 }
 
 type Config struct {
-	FailedUploadPath string             `yaml:"failedUploadPath"`
-	Servers          map[string]*Server `yaml:"servers"`
+	StateStorePath         string             `yaml:"stateStorePath"`
+	StateRetentionDays     int                `yaml:"stateRetentionDays"`
+	NotifyRetryWindowHours int                `yaml:"notifyRetryWindowHours"`
+	Servers                map[string]*Server `yaml:"servers"`
 }
 
 func New(filename string) (*Config, error) {

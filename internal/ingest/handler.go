@@ -113,7 +113,9 @@ func (h *Handler) startRoundTimer() {
 }
 
 func (h *Handler) endCurrentRoundLocked() {
-	h.roundTimer.Stop()
+	if h.roundTimer != nil {
+		h.roundTimer.Stop()
+	}
 
 	if len(h.currentRound.Artifacts) == 0 {
 		return

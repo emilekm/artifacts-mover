@@ -61,6 +61,14 @@ func (s *Scanner) Scan(ctx context.Context) (map[string]struct{}, error) {
 
 	rounds, running, anomalies := matchRounds(s.serverID, prdemos, bf2demos, summaries, decodeBriefing)
 
+	// matchRounds emits the bf2demo-matched rounds before the unmatched ones, so
+	// sort before enqueuing: the notify worker publishes what it finds while the
+	// scan is still running, and every round it finds has to be older than the
+	// ones still to come.
+	sort.Slice(rounds, func(i, j int) bool {
+		return rounds[i].RoundID < rounds[j].RoundID
+	})
+
 	consumed := make(map[string]struct{})
 	for _, round := range rounds {
 		if err := ctx.Err(); err != nil {

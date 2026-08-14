@@ -2,7 +2,9 @@ package store
 
 import (
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,36 +64,53 @@ func (s *MockStore) MarkUploaded(serverID, roundID string, t types.ArtifactType)
 	})
 }
 
-func (s *MockStore) PendingNotifications() ([]types.Round, error) {
+// UnpublishedRounds groups by server and orders by RoundID, the same contract
+// the bbolt store provides.
+func (s *MockStore) UnpublishedRounds() (map[string][]types.Round, error) {
 	args := s.Called()
 	if err := args.Error(0); err != nil {
 		return nil, err
 	}
-	return s.query(func(r types.Round) bool {
-		return r.Uploaded && !r.Notified
-	}), nil
+
+	rounds := make(map[string][]types.Round)
+	for _, round := range s.query(func(r types.Round) bool { return !r.Published }) {
+		rounds[round.ServerID] = append(rounds[round.ServerID], round)
+	}
+	for _, serverRounds := range rounds {
+		slices.SortFunc(serverRounds, func(a, b types.Round) int {
+			return strings.Compare(a.RoundID, b.RoundID)
+		})
+	}
+	return rounds, nil
 }
 
-func (s *MockStore) MarkNotified(serverID, roundID string) error {
+func (s *MockStore) MarkPublished(serverID, roundID string) error {
 	args := s.Called(serverID, roundID)
 	if err := args.Error(0); err != nil {
 		return err
 	}
 	return s.update(serverID, roundID, func(r *types.Round) error {
-		r.Notified = true
+		r.Published = true
+		r.FirstFailedAt = time.Time{}
 		return nil
 	})
 }
 
-// Backoff keeps no retry bookkeeping: attempts and next_attempt_at are not
-// observable through Store, so tests assert on the call instead.
-func (s *MockStore) Backoff(serverID, roundID string, cause error) error {
-	args := s.Called(serverID, roundID, cause)
-	return args.Error(0)
+func (s *MockStore) RecordFailure(serverID, roundID string) error {
+	args := s.Called(serverID, roundID)
+	if err := args.Error(0); err != nil {
+		return err
+	}
+	return s.update(serverID, roundID, func(r *types.Round) error {
+		if r.FirstFailedAt.IsZero() {
+			r.FirstFailedAt = time.Now().UTC()
+		}
+		return nil
+	})
 }
 
-// PurgeCompleted drops every notified round; olderThan is only asserted on,
-// since the mock does not track creation times.
+// PurgeCompleted drops every published and uploaded round; olderThan is only
+// asserted on, since the mock does not track creation times.
 func (s *MockStore) PurgeCompleted(olderThan time.Time) error {
 	args := s.Called(olderThan)
 	if err := args.Error(0); err != nil {
@@ -101,7 +120,7 @@ func (s *MockStore) PurgeCompleted(olderThan time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key, round := range s.rounds {
-		if round.Notified {
+		if round.Published && round.Uploaded {
 			delete(s.rounds, key)
 		}
 	}

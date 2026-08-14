@@ -1,7 +1,7 @@
 // Package integration wires the real ingest, store, upload and notify pieces
 // together and drives them over files on disk. Only the uploader and notifier
-// are stubbed, so the queue transitions (enqueue -> uploaded -> notified) run
-// against a real bbolt store.
+// are stubbed, so the queue transitions (enqueue -> uploaded, enqueue ->
+// published) run against a real bbolt store.
 package integration
 
 import (
@@ -22,6 +22,7 @@ import (
 	"github.com/emilekm/artifacts-mover/internal/upload"
 	"github.com/emilekm/go-prbf2/prdemo"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,6 +34,9 @@ const (
 	// transition needs room for a couple of passes.
 	settleTimeout = 5 * time.Second
 	settleTick    = 25 * time.Millisecond
+
+	// Long enough that no test hits the give-up path unless it asks to.
+	defaultRetryWindow = time.Hour
 )
 
 var (
@@ -53,30 +57,30 @@ func TestQueueLifecycle(t *testing.T) {
 		uploadErr   error
 		notifyErr   error
 
-		wantTypes    []types.ArtifactType
-		wantUploaded bool
-		wantNotified bool
+		wantTypes     []types.ArtifactType
+		wantUploaded  bool
+		wantPublished bool
 	}{
 		{
-			name:        "live rounds are uploaded and notified",
+			name:        "live rounds are uploaded and published",
 			rounds:      2,
 			withBF2Demo: true,
 			wantTypes: []types.ArtifactType{
 				types.ArtifactTypeBF2Demo, types.ArtifactTypePRDemo, types.ArtifactTypeSummary,
 			},
-			wantUploaded: true,
-			wantNotified: true,
+			wantUploaded:  true,
+			wantPublished: true,
 		},
 		{
-			name:        "recovered rounds are uploaded and notified",
+			name:        "recovered rounds are uploaded and published",
 			rounds:      2,
 			recover:     true,
 			withBF2Demo: true,
 			wantTypes: []types.ArtifactType{
 				types.ArtifactTypeBF2Demo, types.ArtifactTypePRDemo, types.ArtifactTypeSummary,
 			},
-			wantUploaded: true,
-			wantNotified: true,
+			wantUploaded:  true,
+			wantPublished: true,
 		},
 		{
 			name:    "recovered round without bf2demo still completes",
@@ -85,11 +89,13 @@ func TestQueueLifecycle(t *testing.T) {
 			wantTypes: []types.ArtifactType{
 				types.ArtifactTypePRDemo, types.ArtifactTypeSummary,
 			},
-			wantUploaded: true,
-			wantNotified: true,
+			wantUploaded:  true,
+			wantPublished: true,
 		},
 		{
-			name:        "upload failure leaves the round pending upload",
+			// Publication no longer waits for the upload: the links are built
+			// from the local filenames and go live when the upload lands.
+			name:        "upload failure does not hold up publication",
 			rounds:      1,
 			recover:     true,
 			withBF2Demo: true,
@@ -97,9 +103,10 @@ func TestQueueLifecycle(t *testing.T) {
 			wantTypes: []types.ArtifactType{
 				types.ArtifactTypeBF2Demo, types.ArtifactTypePRDemo, types.ArtifactTypeSummary,
 			},
+			wantPublished: true,
 		},
 		{
-			name:        "notify failure leaves the round pending notification",
+			name:        "notify failure leaves the round unpublished",
 			rounds:      1,
 			recover:     true,
 			withBF2Demo: true,
@@ -144,48 +151,153 @@ func TestQueueLifecycle(t *testing.T) {
 					return len(env.uploader.calls()) >= 2
 				}, settleTimeout, settleTick, "failing uploads should be retried")
 				assert.Len(t, env.pendingUploads(t), test.rounds)
-				assert.Empty(t, env.notifier.calls(), "an unuploaded round must not be notified")
 			}
 
-			if test.wantNotified {
+			if test.wantPublished {
 				require.Eventually(t, func() bool {
-					return len(env.pendingNotifications(t)) == 0
-				}, settleTimeout, settleTick, "rounds should drain from the notify queue")
-			} else if test.wantUploaded {
+					return len(env.unpublished(t)) == 0
+				}, settleTimeout, settleTick, "rounds should drain from the publish queue")
+			} else {
 				require.Eventually(t, func() bool {
 					return len(env.notifier.calls()) >= 2
 				}, settleTimeout, settleTick, "failing notifications should be retried")
-				assert.Len(t, env.pendingNotifications(t), test.rounds)
+				assert.Len(t, env.unpublished(t), test.rounds)
 			}
 
-			if test.wantNotified {
-				notified := make(map[string][]types.ArtifactType)
-				for _, round := range env.notifier.calls() {
+			if test.wantPublished {
+				published := make(map[string][]types.ArtifactType)
+				for _, round := range env.notifier.published() {
 					for typ := range round.Artifacts {
-						notified[round.RoundID] = append(notified[round.RoundID], typ)
+						published[round.RoundID] = append(published[round.RoundID], typ)
 					}
 				}
-				require.Len(t, notified, test.rounds)
+				require.Len(t, published, test.rounds)
 				for _, roundID := range wantRoundIDs {
-					types := notified[roundID]
+					types := published[roundID]
 					slices.Sort(types)
-					assert.Equal(t, test.wantTypes, types, "artifacts notified for round %s", roundID)
+					assert.Equal(t, test.wantTypes, types, "artifacts published for round %s", roundID)
 				}
 			}
 		})
 	}
 }
 
-type env struct {
-	dirs     map[types.ArtifactType]string
-	store    *store.BboltStore
-	handler  *ingest.Handler
-	scanner  *ingest.Scanner
-	uploader *stubUploader
-	notifier *stubNotifier
+// TestPublicationOrder pins the guarantee the whole design exists for: rounds
+// reach the channel oldest first, whatever the uploads are doing.
+func TestPublicationOrder(t *testing.T) {
+	env := newEnv(t, assert.AnError, nil)
 
-	briefing time.Duration
-	live     []string // paths to feed the handler, in creation order
+	var wantRoundIDs []string
+	for i := range 3 {
+		// The middle round has no bf2demo, so the scanner reconstructs it after
+		// the other two and only the enqueue sort puts it back in place.
+		wantRoundIDs = append(wantRoundIDs, env.writeRound(t, baseTime.Add(time.Duration(i)*time.Hour), i != 1))
+	}
+
+	_, err := env.scanner.Scan(t.Context())
+	require.NoError(t, err)
+
+	env.startWorkers(t)
+
+	require.Eventually(t, func() bool {
+		return len(env.unpublished(t)) == 0
+	}, settleTimeout, settleTick, "every round should be published")
+
+	assert.Equal(t, wantRoundIDs, env.notifier.publishedIDs(),
+		"rounds must be published oldest first even while uploads keep failing")
+}
+
+// TestFailedRoundBlocksLaterRounds is the other half of the guarantee: a round
+// that cannot be published must not let the next one take its place.
+func TestFailedRoundBlocksLaterRounds(t *testing.T) {
+	env := newEnv(t, nil, nil)
+
+	first := env.writeRound(t, baseTime, true)
+	second := env.writeRound(t, baseTime.Add(time.Hour), true)
+	env.notifier.failRound(first, assert.AnError)
+
+	_, err := env.scanner.Scan(t.Context())
+	require.NoError(t, err)
+
+	env.startWorkers(t)
+
+	require.Eventually(t, func() bool {
+		return len(env.notifier.calls()) >= 2
+	}, settleTimeout, settleTick, "the failing round should be retried")
+	assert.Empty(t, env.notifier.publishedIDs(), "no round may be published while an older one is failing")
+
+	env.notifier.failRound(first, nil)
+
+	require.Eventually(t, func() bool {
+		return len(env.unpublished(t)) == 0
+	}, settleTimeout, settleTick, "both rounds should publish once the older one recovers")
+	assert.Equal(t, []string{first, second}, env.notifier.publishedIDs())
+}
+
+// TestGiveUpUnblocksLaterRounds covers the escape hatch: once a round has been
+// failing for longer than the retry window it is published in degraded form and
+// stops holding the channel.
+func TestGiveUpUnblocksLaterRounds(t *testing.T) {
+	env := newEnv(t, nil, nil)
+	env.retryWindow = 10 * time.Millisecond
+
+	first := env.writeRound(t, baseTime, true)
+	second := env.writeRound(t, baseTime.Add(time.Hour), true)
+	env.notifier.failRound(first, assert.AnError)
+
+	_, err := env.scanner.Scan(t.Context())
+	require.NoError(t, err)
+
+	env.startWorkers(t)
+
+	require.Eventually(t, func() bool {
+		return len(env.unpublished(t)) == 0
+	}, settleTimeout, settleTick, "giving up on the older round should release the newer one")
+
+	assert.Equal(t, []string{first}, env.notifier.degradedIDs(),
+		"only the round that ran out of time should be degraded")
+	assert.Equal(t, []string{first, second}, env.notifier.publishedIDs(),
+		"the degraded round keeps its place in the channel")
+}
+
+// TestScanEnqueuesChronologically guards the ordering the notify worker relies
+// on while a scan is still running: a round enqueued later must never be older
+// than one already enqueued.
+func TestScanEnqueuesChronologically(t *testing.T) {
+	env := newEnv(t, nil, nil)
+
+	var wantRoundIDs []string
+	for i := range 3 {
+		wantRoundIDs = append(wantRoundIDs, env.writeRound(t, baseTime.Add(time.Duration(i)*time.Hour), i != 1))
+	}
+
+	storeMock := store.NewMockStore()
+	var enqueued []string
+	storeMock.On("EnqueueRound", mock.Anything).
+		Run(func(args mock.Arguments) {
+			enqueued = append(enqueued, args.Get(0).(types.Round).RoundID)
+		}).
+		Return(nil)
+
+	scanner := ingest.NewScanner(testLogger(t), storeMock, env.handler, env.artifacts, serverID)
+	_, err := scanner.Scan(t.Context())
+	require.NoError(t, err)
+
+	assert.Equal(t, wantRoundIDs, enqueued)
+}
+
+type env struct {
+	dirs      map[types.ArtifactType]string
+	artifacts config.ArtifactsConfig
+	store     *store.BboltStore
+	handler   *ingest.Handler
+	scanner   *ingest.Scanner
+	uploader  *stubUploader
+	notifier  *stubNotifier
+
+	retryWindow time.Duration
+	briefing    time.Duration
+	live        []string // paths to feed the handler, in creation order
 }
 
 func newEnv(t *testing.T, uploadErr, notifyErr error) *env {
@@ -212,13 +324,15 @@ func newEnv(t *testing.T, uploadErr, notifyErr error) *env {
 	t.Cleanup(handler.Close)
 
 	return &env{
-		dirs:     dirs,
-		store:    stateStore,
-		handler:  handler,
-		scanner:  ingest.NewScanner(logger, stateStore, handler, artifactsConfig, serverID),
-		uploader: &stubUploader{err: uploadErr},
-		notifier: &stubNotifier{err: notifyErr},
-		briefing: briefingTime(t, trackerFixture),
+		dirs:        dirs,
+		artifacts:   artifactsConfig,
+		store:       stateStore,
+		handler:     handler,
+		scanner:     ingest.NewScanner(logger, stateStore, handler, artifactsConfig, serverID),
+		uploader:    &stubUploader{err: uploadErr},
+		notifier:    newStubNotifier(notifyErr),
+		retryWindow: defaultRetryWindow,
+		briefing:    briefingTime(t, trackerFixture),
 	}
 }
 
@@ -263,7 +377,7 @@ func (e *env) startWorkers(t *testing.T) {
 
 	uploadWorker := upload.NewWorker(testLogger(t), e.store)
 	uploadWorker.Register(serverID, e.uploader)
-	notifyWorker := notify.NewWorker(testLogger(t), e.store)
+	notifyWorker := notify.NewWorker(testLogger(t), e.store, e.retryWindow)
 	notifyWorker.Register(serverID, e.notifier)
 
 	var wg sync.WaitGroup
@@ -279,10 +393,10 @@ func (e *env) pendingUploads(t *testing.T) []types.Round {
 	return rounds
 }
 
-func (e *env) pendingNotifications(t *testing.T) []types.Round {
-	rounds, err := e.store.PendingNotifications()
+func (e *env) unpublished(t *testing.T) []types.Round {
+	rounds, err := e.store.UnpublishedRounds()
 	require.NoError(t, err)
-	return rounds
+	return rounds[serverID]
 }
 
 // enqueuedRoundIDs reads the queue before any upload has happened, when every
@@ -315,23 +429,90 @@ func (u *stubUploader) calls() []types.Artifact {
 	return slices.Clone(u.artifacts)
 }
 
+type notifyCall struct {
+	round    types.Round
+	degraded bool
+	err      error
+}
+
 type stubNotifier struct {
-	mu     sync.Mutex
-	err    error
-	rounds []types.Round
+	mu          sync.Mutex
+	err         error
+	perRound    map[string]error
+	notifyCalls []notifyCall
+}
+
+func newStubNotifier(err error) *stubNotifier {
+	return &stubNotifier{err: err, perRound: make(map[string]error)}
+}
+
+// failRound overrides the stub's behaviour for one round; nil clears it.
+func (n *stubNotifier) failRound(roundID string, err error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if err == nil {
+		delete(n.perRound, roundID)
+		return
+	}
+	n.perRound[roundID] = err
 }
 
 func (n *stubNotifier) Notify(_ context.Context, round types.Round) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.rounds = append(n.rounds, round)
-	return n.err
+
+	err := n.err
+	if perRound, ok := n.perRound[round.RoundID]; ok {
+		err = perRound
+	}
+
+	n.notifyCalls = append(n.notifyCalls, notifyCall{round: round, err: err})
+	return err
 }
 
-func (n *stubNotifier) calls() []types.Round {
+func (n *stubNotifier) NotifyDegraded(_ context.Context, round types.Round) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	return slices.Clone(n.rounds)
+	n.notifyCalls = append(n.notifyCalls, notifyCall{round: round, degraded: true})
+	return nil
+}
+
+func (n *stubNotifier) calls() []notifyCall {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return slices.Clone(n.notifyCalls)
+}
+
+// published returns the rounds that made it into the channel, in the order they
+// got there, degraded or not.
+func (n *stubNotifier) published() []types.Round {
+	var rounds []types.Round
+	for _, call := range n.calls() {
+		if call.err == nil {
+			rounds = append(rounds, call.round)
+		}
+	}
+	return rounds
+}
+
+func (n *stubNotifier) publishedIDs() []string {
+	var ids []string
+	for _, round := range n.published() {
+		if !slices.Contains(ids, round.RoundID) {
+			ids = append(ids, round.RoundID)
+		}
+	}
+	return ids
+}
+
+func (n *stubNotifier) degradedIDs() []string {
+	var ids []string
+	for _, call := range n.calls() {
+		if call.degraded {
+			ids = append(ids, call.round.RoundID)
+		}
+	}
+	return ids
 }
 
 // briefingTime reads the preround length out of the tracker, which is the

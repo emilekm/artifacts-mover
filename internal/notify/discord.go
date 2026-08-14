@@ -60,11 +60,7 @@ func (n *DiscordNotifier) Notify(ctx context.Context, round types.Round) error {
 	}
 
 	summary.PRDemoPath = round.Artifacts[types.ArtifactTypePRDemo].Path
-	summary.RemoteRefs.PRDemo = fmt.Sprintf(n.remoteURLs.PRDemo, filepath.Base(summary.PRDemoPath))
-	summary.RemoteRefs.TrackerViewer = fmt.Sprintf(n.remoteURLs.TrackerViewer, filepath.Base(summary.PRDemoPath))
-	if bf2Demo, ok := round.Artifacts[types.ArtifactTypeBF2Demo]; ok {
-		summary.RemoteRefs.BF2Demo = fmt.Sprintf(n.remoteURLs.BF2Demo, bf2Demo.Path)
-	}
+	summary.RemoteRefs = n.refs(round)
 
 	if t1, t2, err := extractTickets(summary.PRDemoPath); err != nil {
 		n.logger.LogAttrs(
@@ -101,36 +97,84 @@ func (n *DiscordNotifier) Notify(ctx context.Context, round types.Round) error {
 	return n.send(ctx, &summary)
 }
 
+// NotifyDegraded announces a round whose summary could not be read, so it stops
+// blocking the rounds behind it. Everything the summary would have provided is
+// gone; the tracker and the links are not.
+func (n *DiscordNotifier) NotifyDegraded(ctx context.Context, round types.Round) error {
+	msg := &discordgo.MessageSend{
+		Embeds: []*discordgo.MessageEmbed{{
+			Title:       fmt.Sprintf("Round %s", round.RoundID),
+			Type:        discordgo.EmbedTypeRich,
+			Description: "Round summary is unavailable.",
+		}},
+		Components: []discordgo.MessageComponent{linkButtons(n.refs(round))},
+	}
+
+	prDemoPath := round.Artifacts[types.ArtifactTypePRDemo].Path
+	if prDemo, err := os.Open(prDemoPath); err == nil {
+		defer prDemo.Close()
+		msg.Files = []*discordgo.File{{
+			Name:   filepath.Base(prDemoPath),
+			Reader: prDemo,
+		}}
+	}
+
+	_, err := n.session.ChannelMessageSendComplex(n.channelID, msg, discordgo.WithContext(ctx))
+	return err
+}
+
+// refs builds the remote links from the local filenames. They are known before
+// the upload finishes, and stay dead until it does.
+func (n *DiscordNotifier) refs(round types.Round) config.RemoteURLs {
+	var refs config.RemoteURLs
+
+	if prDemo, ok := round.Artifacts[types.ArtifactTypePRDemo]; ok {
+		refs.PRDemo = fmt.Sprintf(n.remoteURLs.PRDemo, filepath.Base(prDemo.Path))
+		refs.TrackerViewer = fmt.Sprintf(n.remoteURLs.TrackerViewer, filepath.Base(prDemo.Path))
+	}
+	if bf2Demo, ok := round.Artifacts[types.ArtifactTypeBF2Demo]; ok {
+		refs.BF2Demo = fmt.Sprintf(n.remoteURLs.BF2Demo, bf2Demo.Path)
+	}
+
+	return refs
+}
+
+func linkButtons(refs config.RemoteURLs) discordgo.ActionsRow {
+	row := discordgo.ActionsRow{}
+
+	if refs.BF2Demo != "" {
+		row.Components = append(row.Components, discordgo.Button{
+			Label: "Download Battle Recorder",
+			URL:   refs.BF2Demo,
+			Style: discordgo.LinkButton,
+		})
+	}
+
+	if refs.PRDemo != "" {
+		row.Components = append(row.Components, discordgo.Button{
+			Label: "Download Tracker",
+			URL:   refs.PRDemo,
+			Style: discordgo.LinkButton,
+		})
+	}
+
+	if refs.TrackerViewer != "" {
+		row.Components = append(row.Components, discordgo.Button{
+			Label: "View Tracker",
+			URL:   refs.TrackerViewer,
+			Style: discordgo.LinkButton,
+		})
+	}
+
+	return row
+}
+
 func (n *DiscordNotifier) send(ctx context.Context, summary *Summary) error {
 	msg := &discordgo.MessageSend{
 		Files: make([]*discordgo.File, 0),
 	}
 
-	row := discordgo.ActionsRow{}
-
-	if summary.RemoteRefs.BF2Demo != "" {
-		row.Components = append(row.Components, discordgo.Button{
-			Label: "Download Battle Recorder",
-			URL:   summary.RemoteRefs.BF2Demo,
-			Style: discordgo.LinkButton,
-		})
-	}
-
-	if summary.RemoteRefs.PRDemo != "" {
-		row.Components = append(row.Components, discordgo.Button{
-			Label: "Download Tracker",
-			URL:   summary.RemoteRefs.PRDemo,
-			Style: discordgo.LinkButton,
-		})
-	}
-
-	if summary.RemoteRefs.TrackerViewer != "" {
-		row.Components = append(row.Components, discordgo.Button{
-			Label: "View Tracker",
-			URL:   summary.RemoteRefs.TrackerViewer,
-			Style: discordgo.LinkButton,
-		})
-	}
+	row := linkButtons(summary.RemoteRefs)
 
 	if summary.PRDemoFile != nil {
 		msg.Files = append(msg.Files, &discordgo.File{

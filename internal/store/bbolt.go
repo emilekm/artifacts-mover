@@ -4,16 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/types"
 	bolt "go.etcd.io/bbolt"
-)
-
-const (
-	maxAttempts = 10
-	baseBackoff = 30 * time.Second
-	maxBackoff  = 30 * time.Minute
 )
 
 var (
@@ -21,14 +17,10 @@ var (
 	ErrRoundNotFound = errors.New("store: round not found")
 )
 
-// record is a round plus the retry bookkeeping kept only inside the store.
+// record is a round plus the enqueue time kept only inside the store.
 type record struct {
-	Round         types.Round
-	Attempts      int
-	NextAttemptAt time.Time
-	LastError     string
-	Dead          bool
-	CreatedAt     time.Time
+	Round     types.Round
+	CreatedAt time.Time
 }
 
 // BboltStore keeps one bucket per server, keyed by round ID.
@@ -77,32 +69,56 @@ func (s *BboltStore) MarkUploaded(serverID, roundID string, t types.ArtifactType
 		artifact.Uploaded = true
 		rec.Round.Artifacts[t] = artifact
 		rec.Round.Uploaded = allUploaded(rec.Round.Artifacts)
-		rec.resetBackoff()
 		return nil
 	})
 }
 
-func (s *BboltStore) PendingNotifications() ([]types.Round, error) {
-	return s.query(func(rec record) bool {
-		return rec.Round.Uploaded && !rec.Round.Notified
+// UnpublishedRounds groups the rounds still waiting to be published by server,
+// oldest first. RoundID is a fixed-width UTC RFC3339 timestamp, so sorting on it
+// is chronological.
+func (s *BboltStore) UnpublishedRounds() (map[string][]types.Round, error) {
+	rounds := make(map[string][]types.Round)
+
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.ForEach(func(name []byte, b *bolt.Bucket) error {
+			serverID := string(name)
+			return b.ForEach(func(_, v []byte) error {
+				var rec record
+				if err := json.Unmarshal(v, &rec); err != nil {
+					return err
+				}
+				if rec.Round.Published {
+					return nil
+				}
+				rounds[serverID] = append(rounds[serverID], rec.Round)
+				return nil
+			})
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, serverRounds := range rounds {
+		slices.SortFunc(serverRounds, func(a, b types.Round) int {
+			return strings.Compare(a.RoundID, b.RoundID)
+		})
+	}
+	return rounds, nil
 }
 
-func (s *BboltStore) MarkNotified(serverID, roundID string) error {
+func (s *BboltStore) MarkPublished(serverID, roundID string) error {
 	return s.update(serverID, roundID, func(rec *record) error {
-		rec.Round.Notified = true
-		rec.resetBackoff()
+		rec.Round.Published = true
+		rec.Round.FirstFailedAt = time.Time{}
 		return nil
 	})
 }
 
-func (s *BboltStore) Backoff(serverID, roundID string, cause error) error {
+func (s *BboltStore) RecordFailure(serverID, roundID string) error {
 	return s.update(serverID, roundID, func(rec *record) error {
-		rec.Attempts++
-		rec.LastError = cause.Error()
-		rec.NextAttemptAt = time.Now().UTC().Add(backoffFor(rec.Attempts))
-		if rec.Attempts >= maxAttempts {
-			rec.Dead = true
+		if rec.Round.FirstFailedAt.IsZero() {
+			rec.Round.FirstFailedAt = time.Now().UTC()
 		}
 		return nil
 	})
@@ -117,7 +133,10 @@ func (s *BboltStore) PurgeCompleted(olderThan time.Time) error {
 				if err := json.Unmarshal(v, &rec); err != nil {
 					return err
 				}
-				if rec.Round.Notified && rec.CreatedAt.Before(olderThan) {
+				// Publishing no longer waits for the upload, so both have to be
+				// done before a record can go; otherwise purging would abandon
+				// an upload that is still being retried.
+				if rec.Round.Published && rec.Round.Uploaded && rec.CreatedAt.Before(olderThan) {
 					toDelete = append(toDelete, k)
 				}
 				return nil
@@ -140,10 +159,8 @@ func (s *BboltStore) Close() error {
 	return s.db.Close()
 }
 
-// query returns every round that is neither dead nor backing off and matches keep.
+// query returns every round matching keep.
 func (s *BboltStore) query(keep func(record) bool) ([]types.Round, error) {
-	now := time.Now().UTC()
-
 	var rounds []types.Round
 	err := s.db.View(func(tx *bolt.Tx) error {
 		return tx.ForEach(func(_ []byte, b *bolt.Bucket) error {
@@ -152,7 +169,7 @@ func (s *BboltStore) query(keep func(record) bool) ([]types.Round, error) {
 				if err := json.Unmarshal(v, &rec); err != nil {
 					return err
 				}
-				if rec.Dead || rec.NextAttemptAt.After(now) || !keep(rec) {
+				if !keep(rec) {
 					return nil
 				}
 				rounds = append(rounds, rec.Round)
@@ -196,20 +213,6 @@ func put(b *bolt.Bucket, rec record) error {
 		return err
 	}
 	return b.Put([]byte(rec.Round.RoundID), raw)
-}
-
-func (r *record) resetBackoff() {
-	r.Attempts = 0
-	r.NextAttemptAt = time.Time{}
-	r.LastError = ""
-}
-
-func backoffFor(attempts int) time.Duration {
-	d := baseBackoff << (attempts - 1)
-	if d > maxBackoff || d <= 0 {
-		return maxBackoff
-	}
-	return d
 }
 
 func allUploaded(artifacts map[types.ArtifactType]types.Artifact) bool {

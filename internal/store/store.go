@@ -9,12 +9,15 @@ import (
 type Store interface {
 	EnqueueRound(r types.Round) error
 
-	PendingUploads() ([]types.Round, error) // uploaded==false AND next_attempt_at<=now
+	PendingUploads() ([]types.Round, error) // uploaded==false
 	MarkUploaded(serverID, roundID string, t types.ArtifactType) error
 
-	PendingNotifications() ([]types.Round, error) // all uploaded AND notified==false AND next_attempt_at<=now
-	MarkNotified(serverID, roundID string) error
+	// UnpublishedRounds returns every published==false round grouped by server,
+	// oldest first within each server. Publication order depends on that
+	// ordering, so it is part of the contract, not an artifact of the storage.
+	UnpublishedRounds() (map[string][]types.Round, error)
+	MarkPublished(serverID, roundID string) error
+	RecordFailure(serverID, roundID string) error // stamps FirstFailedAt on the first failure
 
-	Backoff(serverID, roundID string, err error) error // attempts++, next_attempt_at, dead-letter at max
 	PurgeCompleted(olderThan time.Time) error
 }

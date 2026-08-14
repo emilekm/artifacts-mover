@@ -28,6 +28,7 @@ const (
 	defaultRoundTimeout       = 4*time.Hour + 10*time.Minute
 	defaultStateStorePath     = "state.db"
 	defaultStateRetentionDays = 7
+	defaultNotifyRetryWindow  = time.Hour
 	purgeInterval             = 6 * time.Hour
 )
 
@@ -79,9 +80,14 @@ func run(ctx context.Context, confPath string) error {
 		retentionDays = defaultStateRetentionDays
 	}
 
+	notifyRetryWindow := time.Duration(conf.NotifyRetryWindowHours) * time.Hour
+	if notifyRetryWindow == 0 {
+		notifyRetryWindow = defaultNotifyRetryWindow
+	}
+
 	watcher := ingest.NewWatcher(logger)
 	uploads := upload.NewWorker(logger, stateStore)
-	notifications := notify.NewWorker(logger, stateStore)
+	notifications := notify.NewWorker(logger, stateStore, notifyRetryWindow)
 
 	scanners := make([]*ingest.Scanner, 0, len(conf.Servers))
 

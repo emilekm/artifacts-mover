@@ -39,21 +39,17 @@ func (w *Worker) Register(serverID string, notifier Notifier) {
 }
 
 func (w *Worker) Watch(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			rounds, err := w.store.UnpublishedRounds()
-			if err == nil {
-				for serverID, serverRounds := range rounds {
-					w.publishServer(ctx, serverID, serverRounds)
-				}
+	for ctx.Err() == nil {
+		rounds, err := w.store.UnpublishedRounds()
+		if err == nil {
+			for serverID, serverRounds := range rounds {
+				w.publishServer(ctx, serverID, serverRounds)
 			}
-
-			time.Sleep(time.Second)
 		}
+
+		time.Sleep(time.Second)
 	}
+	return ctx.Err()
 }
 
 // publishServer walks one server's rounds oldest first and stops at the first

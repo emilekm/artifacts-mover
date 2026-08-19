@@ -34,21 +34,17 @@ func (w *Worker) Register(serverID string, uploader Uploader) {
 }
 
 func (w *Worker) Watch(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			records, err := w.store.PendingUploads()
-			if err == nil {
-				for _, record := range records {
-					w.uploadRecord(ctx, record)
-				}
+	for ctx.Err() == nil {
+		records, err := w.store.PendingUploads()
+		if err == nil {
+			for _, record := range records {
+				w.uploadRecord(ctx, record)
 			}
-
-			time.Sleep(time.Second)
 		}
+
+		time.Sleep(time.Second)
 	}
+	return ctx.Err()
 }
 
 func (w *Worker) uploadRecord(ctx context.Context, record types.Round) {

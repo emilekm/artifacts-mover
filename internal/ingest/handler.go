@@ -136,7 +136,7 @@ func (h *Handler) endCurrentRoundLocked() {
 	err := h.store.EnqueueRound(*round)
 	if err != nil {
 		h.logger.LogAttrs(
-			h.ctx, slog.LevelWarn,
+			h.ctx, slog.LevelError,
 			"handler: failed to enqueu round",
 			log.ServerID(h.serverID),
 			log.RoundID(roundID),

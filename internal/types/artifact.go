@@ -44,7 +44,6 @@ type Artifact struct {
 	Type      ArtifactType
 	Path      string
 	Timestamp *time.Time
-	Uploaded  bool
 }
 
 func NewArtifact(path string, typ ArtifactType) Artifact {

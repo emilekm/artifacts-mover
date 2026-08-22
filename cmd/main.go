@@ -13,8 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	"database/sql"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/emilekm/artifacts-mover/internal/config"
+	"github.com/emilekm/artifacts-mover/internal/db"
 	"github.com/emilekm/artifacts-mover/internal/ingest"
 	applog "github.com/emilekm/artifacts-mover/internal/log"
 	"github.com/emilekm/artifacts-mover/internal/notify"
@@ -22,6 +25,11 @@ import (
 	"github.com/emilekm/artifacts-mover/internal/types"
 	"github.com/emilekm/artifacts-mover/internal/upload"
 	"golang.org/x/sync/errgroup"
+
+	_ "modernc.org/sqlite"
+
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riversqlite"
 )
 
 const (
@@ -69,11 +77,35 @@ func run(ctx context.Context, confPath string) error {
 		stateStorePath = defaultStateStorePath
 	}
 
-	stateStore, err := store.NewBboltStore(stateStorePath)
+	dbPool, err := sql.Open("sqlite", "file:./river.sqlite3")
 	if err != nil {
 		return err
 	}
-	defer stateStore.Close()
+	defer dbPool.Close()
+
+	dbPool.SetMaxOpenConns(1)
+
+	db, err := db.NewDB(dbPool)
+	if err != nil {
+		return err
+	}
+	uploads := upload.NewWorker(logger, db)
+	notifications := notify.NewWorker(logger, db)
+
+	workers := river.NewWorkers()
+	river.AddWorker(workers, uploads)
+	river.AddWorker(workers, notifications)
+
+	riverClient, err := river.NewClient(riversqlite.New(dbPool), &river.Config{
+		Queues: map[string]river.QueueConfig{
+			river.QueueDefault: {MaxWorkers: 100},
+		},
+		Logger:  logger,
+		Workers: workers,
+	})
+	if err != nil {
+		return err
+	}
 
 	retentionDays := conf.StateRetentionDays
 	if retentionDays == 0 {
@@ -86,8 +118,6 @@ func run(ctx context.Context, confPath string) error {
 	}
 
 	watcher := ingest.NewWatcher(logger)
-	uploads := upload.NewWorker(logger, stateStore)
-	notifications := notify.NewWorker(logger, stateStore, notifyRetryWindow)
 
 	scanners := make([]*ingest.Scanner, 0, len(conf.Servers))
 
@@ -124,7 +154,6 @@ func run(ctx context.Context, confPath string) error {
 
 	group, ctx := errgroup.WithContext(ctx)
 	group.Go(func() error { return watcher.Run(ctx, scanAll(scanners)) })
-	group.Go(func() error { return uploads.Watch(ctx) })
 	group.Go(func() error { return notifications.Watch(ctx) })
 	group.Go(func() error { return purgeLoop(ctx, logger, stateStore, retentionDays) })
 

@@ -22,7 +22,7 @@ type Handler struct {
 	roundTimeout time.Duration
 	serverID     string
 
-	currentRound *types.Round
+	currentRound types.Round
 	roundTimer   *time.Timer
 
 	ctx    context.Context
@@ -50,7 +50,7 @@ func NewHandler(
 		store:        stateStore,
 		locToTyp:     locToType,
 		roundTimeout: roundTimeout,
-		currentRound: types.NewRound(serverID),
+		currentRound: make(types.Round),
 		ctx:          ctx,
 		cancel:       cancel,
 		serverID:     serverID,
@@ -60,8 +60,8 @@ func NewHandler(
 		h.roundTimer = time.AfterFunc(roundTimeout, func() {
 			h.mu.Lock()
 			defer h.mu.Unlock()
-			if len(h.currentRound.Artifacts) > 0 {
-				h.logger.LogAttrs(h.ctx, slog.LevelWarn, "handler: round timeout reached", slog.Int("files", len(h.currentRound.Artifacts)))
+			if len(h.currentRound) > 0 {
+				h.logger.LogAttrs(h.ctx, slog.LevelWarn, "handler: round timeout reached", slog.Int("files", len(h.currentRound)))
 				h.endCurrentRoundLocked()
 			}
 		})
@@ -87,21 +87,21 @@ func (h *Handler) handleFile(artifact types.Artifact) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if _, ok := h.currentRound.Artifacts[artifact.Type]; ok {
+	if _, ok := h.currentRound[artifact.Type]; ok {
 		h.endCurrentRoundLocked()
 	}
-	if artifact.Type == types.ArtifactTypeBF2Demo && len(h.currentRound.Artifacts) > 0 {
+	if artifact.Type == types.ArtifactTypeBF2Demo && len(h.currentRound) > 0 {
 		h.endCurrentRoundLocked()
 	}
 
-	h.currentRound.Artifacts[artifact.Type] = artifact
+	h.currentRound[artifact.Type] = artifact
 
-	if artifact.Type != types.ArtifactTypeBF2Demo && len(h.currentRound.Artifacts) == typesCount {
+	if artifact.Type != types.ArtifactTypeBF2Demo && len(h.currentRound) == typesCount {
 		h.endCurrentRoundLocked()
 		return
 	}
 
-	if len(h.currentRound.Artifacts) == 1 {
+	if len(h.currentRound) == 1 {
 		h.startRoundTimer()
 	}
 }
@@ -124,7 +124,7 @@ func (h *Handler) endCurrentRoundLocked() {
 	round := h.currentRound
 	h.currentRound = types.NewRound(h.serverID)
 
-	timestamp := round.Artifacts[types.ArtifactTypePRDemo].Timestamp
+	timestamp := round[types.ArtifactTypePRDemo].Timestamp
 	if timestamp == nil {
 		t := time.Now().UTC()
 		timestamp = &t

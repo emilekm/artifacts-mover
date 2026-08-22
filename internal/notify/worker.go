@@ -39,7 +39,8 @@ func (w *Worker) Register(serverID string, notifier Notifier) {
 }
 
 func (w *Worker) Watch(ctx context.Context) error {
-	for ctx.Err() == nil {
+	ticker := time.NewTicker(time.Second)
+	for {
 		rounds, err := w.store.UnpublishedRounds()
 		if err == nil {
 			for serverID, serverRounds := range rounds {
@@ -47,9 +48,12 @@ func (w *Worker) Watch(ctx context.Context) error {
 			}
 		}
 
-		time.Sleep(time.Second)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
-	return ctx.Err()
 }
 
 // publishServer walks one server's rounds oldest first and stops at the first

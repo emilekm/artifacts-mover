@@ -34,7 +34,8 @@ func (w *Worker) Register(serverID string, uploader Uploader) {
 }
 
 func (w *Worker) Watch(ctx context.Context) error {
-	for ctx.Err() == nil {
+	ticker := time.NewTicker(time.Second)
+	for {
 		records, err := w.store.PendingUploads()
 		if err == nil {
 			for _, record := range records {
@@ -42,9 +43,12 @@ func (w *Worker) Watch(ctx context.Context) error {
 			}
 		}
 
-		time.Sleep(time.Second)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
-	return ctx.Err()
 }
 
 func (w *Worker) uploadRecord(ctx context.Context, record types.Round) {

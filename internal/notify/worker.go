@@ -2,9 +2,11 @@ package notify
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/db"
 	"github.com/emilekm/artifacts-mover/internal/jobs"
@@ -13,8 +15,13 @@ import (
 	"github.com/riverqueue/river"
 )
 
+const (
+	allUploadsWaitTime = 10 * time.Second
+)
+
 type Notifier interface {
 	Notify(ctx context.Context, msgID *string, artifacts types.Round) (string, error)
+	ReserveMessageID(ctx context.Context, demoName string) (string, error)
 }
 
 type Worker struct {
@@ -39,18 +46,73 @@ func (w *Worker) Register(serverID string, notifier Notifier) {
 }
 
 func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.SyncNotificationArgs]) error {
+	serverID := job.Args.ServerID
 	roundID := job.Args.RoundID
-	round, err := w.db.Round(ctx, roundID)
-	if err != nil {
-		return err
-	}
 
-	notifier, ok := w.notifiers[round.ServerID]
+	notifier, ok := w.notifiers[serverID]
 	if !ok {
 		return fmt.Errorf("notify_no_handler")
 	}
 
-	msgID, err := notifier.Notify(ctx, round.DiscordMessageID, round.ArtifactsByType)
+	msgID := ""
+	defer func() {
+		if msgID == "" {
+			msgID, err := notifier.ReserveMessageID(ctx, job.Args.DemoName)
+			if err != nil {
+				w.logger.LogAttrs(
+					ctx, slog.LevelError,
+					"notify: failed to reserver message",
+					applog.Error(err),
+				)
+			}
+
+			err = w.db.UpdateMessageID(ctx, roundID, msgID)
+			if err != nil {
+				// TODO: remove message
+				w.logger.LogAttrs(
+					ctx, slog.LevelError,
+					"notify: update reserved message ID",
+					applog.Error(err),
+				)
+			}
+		}
+	}()
+
+	round, err := w.db.Round(ctx, roundID)
+	if err != nil {
+		return err
+	}
+	if round.DiscordMessageID != nil {
+		msgID = *round.DiscordMessageID
+	}
+
+	tctx, tcancel := context.WithTimeout(ctx, allUploadsWaitTime)
+	defer tcancel()
+	ticker := time.NewTicker(501 * time.Millisecond)
+
+L:
+	for {
+		if allArtifactsUploaded(round.ArtifactsByType) {
+			break
+		}
+
+		select {
+		case <-tctx.Done():
+			ticker.Stop()
+			break L
+		case <-ticker.C:
+			round, err = w.db.Round(tctx, roundID)
+			if err != nil {
+				w.logger.LogAttrs(
+					ctx, slog.LevelError,
+					"notify: failed to fetch round while waiting for uploads",
+					applog.Error(err),
+				)
+			}
+		}
+	}
+
+	msgID, err = notifier.Notify(ctx, round.DiscordMessageID, round.ArtifactsByType)
 	if err != nil {
 		return err
 	}
@@ -62,15 +124,15 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.SyncNotificationA
 		}
 	}
 
-	allUploaded := true
-	for _, artifact := range round.Artifacts {
-		if !artifact.Uploaded {
-			allUploaded = false
-			break
+	if allArtifactsUploaded(round.ArtifactsByType) {
+		err = w.db.CancelWaitingSyncJobs(ctx, river.ClientFromContext[*sql.Tx](ctx), serverID, roundID)
+		if err != nil {
+			w.logger.LogAttrs(
+				ctx, slog.LevelError,
+				"notify: cancel waiting sync jobs",
+				applog.Error(err),
+			)
 		}
-	}
-
-	if allUploaded {
 		go func(round types.Round) {
 			for _, artifact := range round {
 				err := os.Remove(artifact.Path)
@@ -87,4 +149,13 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.SyncNotificationA
 	}
 
 	return nil
+}
+
+func allArtifactsUploaded(round types.Round) bool {
+	for _, artifact := range round {
+		if !artifact.Uploaded {
+			return false
+		}
+	}
+	return true
 }

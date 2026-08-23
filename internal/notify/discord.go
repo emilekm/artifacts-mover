@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,6 +17,7 @@ import (
 )
 
 const (
+	msgIDPrefix         = "__reserved"
 	embedDescriptionFmt = `**_%s, %s_**
 
 Duration: %d minutes
@@ -45,7 +47,7 @@ func NewDiscordNotifier(logger *slog.Logger, session discordSession, conf config
 }
 
 func (n *DiscordNotifier) Notify(ctx context.Context, msgID *string, round types.Round) (string, error) {
-	if msgID != nil {
+	if msgID != nil && !strings.HasPrefix(*msgID, msgIDPrefix) {
 		return n.patchButtons(ctx, *msgID, round)
 	}
 
@@ -96,6 +98,24 @@ func (n *DiscordNotifier) Notify(ctx context.Context, msgID *string, round types
 	}
 
 	return n.send(ctx, &summary)
+}
+func (n *DiscordNotifier) ReserveMessageID(ctx context.Context, demoName string) (string, error) {
+	msg := &discordgo.MessageSend{
+		Embeds: []*discordgo.MessageEmbed{
+			&discordgo.MessageEmbed{
+				Title:       "Round summary",
+				Type:        discordgo.EmbedTypeRich,
+				Description: fmt.Sprintf("Summary for round %q is not available.", demoName),
+			},
+		},
+	}
+
+	resp, err := n.session.ChannelMessageSendComplex(n.channelID, msg, discordgo.WithContext(ctx))
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s-%s", msgIDPrefix, resp.ID), nil
 }
 
 func (n *DiscordNotifier) patchButtons(ctx context.Context, msgID string, round types.Round) (string, error) {

@@ -3,11 +3,14 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"path/filepath"
 	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/jobs"
 	"github.com/emilekm/artifacts-mover/internal/types"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -65,7 +68,9 @@ func (db *DB) EnqueueRound(ctx context.Context, riverClient *river.Client[*sql.T
 	}
 
 	_, err = riverClient.InsertTx(ctx, sqlTx, jobs.SyncNotificationArgs{
-		RoundID: dbRound.ID,
+		ServerID: serverID,
+		RoundID:  dbRound.ID,
+		DemoName: filepath.Base(round[types.ArtifactTypePRDemo].Path),
 	}, nil)
 	if err != nil {
 		return err
@@ -98,7 +103,9 @@ func (db *DB) MarkUploaded(ctx context.Context, riverClient *river.Client[*sql.T
 
 	sqlTx := tx.Statement.Statement.ConnPool.(*sql.Tx)
 	_, err = riverClient.InsertTx(ctx, sqlTx, jobs.SyncNotificationArgs{
-		RoundID: artifact.RoundID,
+		ServerID: artifact.Round.ServerID,
+		RoundID:  artifact.RoundID,
+		DemoName: filepath.Base(artifact.Path),
 	}, nil)
 	if err != nil {
 		return err
@@ -110,4 +117,38 @@ func (db *DB) MarkUploaded(ctx context.Context, riverClient *river.Client[*sql.T
 func (db *DB) UpdateMessageID(ctx context.Context, roundID uint, messageID string) error {
 	_, err := gorm.G[Round](db.gorm).Where("id = ?", roundID).Update(ctx, "discord_message_id", messageID)
 	return err
+}
+
+func (db *DB) CancelWaitingSyncJobs(ctx context.Context, client *river.Client[*sql.Tx], serverID string, roundID uint) error {
+	params := river.NewJobListParams().
+		Kinds(jobs.SyncNotificationKind).
+		States(rivertype.JobStateAvailable).
+		Queues(serverID)
+
+	tx := db.gorm.Begin()
+	defer tx.Rollback()
+
+	sqlTx := tx.Statement.Statement.ConnPool.(*sql.Tx)
+
+	result, err := client.JobListTx(ctx, sqlTx, params)
+	if err != nil {
+		return err
+	}
+
+	for _, job := range result.Jobs {
+		var args jobs.SyncNotificationArgs
+		err := json.Unmarshal(job.EncodedArgs, &args)
+		if err != nil {
+			return err
+		}
+
+		if args.RoundID == roundID {
+			_, err = client.JobCancelTx(ctx, sqlTx, job.ID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit().Error
 }

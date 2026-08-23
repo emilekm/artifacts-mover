@@ -69,7 +69,7 @@ func run(ctx context.Context, confPath string) error {
 		return err
 	}
 
-	dbPool, err := sql.Open("sqlite", "file:./river.sqlite3")
+	dbPool, err := sql.Open("sqlite", "file:./river.sqlite3?_pragma=journal_mode(WAL)&_txlock=immediate")
 	if err != nil {
 		return err
 	}
@@ -99,10 +99,16 @@ func run(ctx context.Context, confPath string) error {
 	river.AddWorker(workers, uploads)
 	river.AddWorker(workers, notifications)
 
+	queues := map[string]river.QueueConfig{
+		river.QueueDefault: {MaxWorkers: 10},
+	}
+
+	for name := range conf.Servers {
+		queues[name] = river.QueueConfig{MaxWorkers: 1}
+	}
+
 	riverClient, err := river.NewClient(riversqlite.New(dbPool), &river.Config{
-		Queues: map[string]river.QueueConfig{
-			river.QueueDefault: {MaxWorkers: 100},
-		},
+		Queues:  queues,
 		Logger:  logger,
 		Workers: workers,
 	})

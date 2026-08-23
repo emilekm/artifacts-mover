@@ -99,13 +99,13 @@ func (n *DiscordNotifier) Notify(ctx context.Context, msgID *string, round types
 
 	return n.send(ctx, &summary)
 }
-func (n *DiscordNotifier) ReserveMessageID(ctx context.Context, demoName string) (string, error) {
+func (n *DiscordNotifier) ReserveMessageID(ctx context.Context, timestamp time.Time) (string, error) {
 	msg := &discordgo.MessageSend{
 		Embeds: []*discordgo.MessageEmbed{
 			&discordgo.MessageEmbed{
 				Title:       "Round summary",
 				Type:        discordgo.EmbedTypeRich,
-				Description: fmt.Sprintf("Summary for round %q is not available.", demoName),
+				Description: fmt.Sprintf("Summary for round at %q is not available.", timestamp.Format(time.DateTime)),
 			},
 		},
 	}

@@ -1,6 +1,8 @@
 package jobs
 
 import (
+	"time"
+
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 )
@@ -8,9 +10,9 @@ import (
 const SyncNotificationKind = "notify"
 
 type SyncNotificationArgs struct {
-	ServerID string
-	RoundID  uint
-	DemoName string
+	ServerID  string
+	RoundID   uint
+	Timestamp time.Time
 }
 
 func (SyncNotificationArgs) Kind() string { return SyncNotificationKind }

@@ -21,7 +21,7 @@ const (
 
 type Notifier interface {
 	Notify(ctx context.Context, msgID *string, artifacts types.Round) (string, error)
-	ReserveMessageID(ctx context.Context, demoName string) (string, error)
+	ReserveMessageID(ctx context.Context, timestamp time.Time) (string, error)
 }
 
 type Worker struct {
@@ -57,7 +57,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.SyncNotificationA
 	msgID := ""
 	defer func() {
 		if msgID == "" {
-			msgID, err := notifier.ReserveMessageID(ctx, job.Args.DemoName)
+			msgID, err := notifier.ReserveMessageID(ctx, job.Args.Timestamp)
 			if err != nil {
 				w.logger.LogAttrs(
 					ctx, slog.LevelError,

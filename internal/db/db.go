@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"path/filepath"
+	"errors"
 	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/jobs"
@@ -37,7 +37,6 @@ func NewDB(pool *sql.DB) (*DB, error) {
 func (db *DB) EnqueueRound(ctx context.Context, riverClient *river.Client[*sql.Tx], serverID string, started time.Time, round types.Round) error {
 	tx := db.gorm.Begin()
 	defer tx.Rollback()
-
 	dbRound := Round{
 		ServerID: serverID,
 		Started:  started,
@@ -51,7 +50,7 @@ func (db *DB) EnqueueRound(ctx context.Context, riverClient *river.Client[*sql.T
 
 	result := gorm.WithResult()
 	err := gorm.G[Round](tx, result).Create(ctx, &dbRound)
-	if err != nil {
+	if err != nil && !errors.Is(err, gorm.ErrCheckConstraintViolated) {
 		return err
 	}
 
@@ -68,9 +67,9 @@ func (db *DB) EnqueueRound(ctx context.Context, riverClient *river.Client[*sql.T
 	}
 
 	_, err = riverClient.InsertTx(ctx, sqlTx, jobs.SyncNotificationArgs{
-		ServerID: serverID,
-		RoundID:  dbRound.ID,
-		DemoName: filepath.Base(round[types.ArtifactTypePRDemo].Path),
+		ServerID:  serverID,
+		RoundID:   dbRound.ID,
+		Timestamp: started,
 	}, nil)
 	if err != nil {
 		return err
@@ -103,9 +102,9 @@ func (db *DB) MarkUploaded(ctx context.Context, riverClient *river.Client[*sql.T
 
 	sqlTx := tx.Statement.Statement.ConnPool.(*sql.Tx)
 	_, err = riverClient.InsertTx(ctx, sqlTx, jobs.SyncNotificationArgs{
-		ServerID: artifact.Round.ServerID,
-		RoundID:  artifact.RoundID,
-		DemoName: filepath.Base(artifact.Path),
+		ServerID:  artifact.Round.ServerID,
+		RoundID:   artifact.RoundID,
+		Timestamp: artifact.Round.Started,
 	}, nil)
 	if err != nil {
 		return err

@@ -16,8 +16,8 @@ type Artifact struct {
 
 type Round struct {
 	gorm.Model
-	ServerID         string
-	Started          time.Time
+	ServerID         string    `gorm:"index:server_round,unique"`
+	Started          time.Time `gorm:"index:server_round,unique"`
 	Artifacts        []Artifact
 	ArtifactsByType  types.Round `gorm:"-"`
 	DiscordMessageID *string

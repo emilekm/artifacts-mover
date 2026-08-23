@@ -44,6 +44,10 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.UploadArgs]) erro
 		return err
 	}
 
+	if artifact.Uploaded {
+		return nil
+	}
+
 	uploader, ok := w.uploaders[artifact.Round.ServerID]
 	if !ok {
 		// w.logger.LogAttrs(

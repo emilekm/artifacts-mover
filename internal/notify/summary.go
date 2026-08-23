@@ -2,8 +2,6 @@ package notify
 
 import (
 	"io"
-
-	"github.com/emilekm/artifacts-mover/internal/config"
 )
 
 type Player struct {
@@ -24,11 +22,22 @@ type JSONSummary struct {
 	Players      []Player `json:"Players"`
 }
 
+type Ref struct {
+	Enabled bool
+	URL     string
+}
+
+type RemoteRefs struct {
+	BF2Demo       Ref
+	PRDemo        Ref
+	TrackerViewer Ref
+}
+
 type Summary struct {
 	JSONSummary
 
 	PRDemoPath string
 	PRDemoFile io.Reader
 	Image      io.Reader
-	RemoteRefs config.RemoteURLs
+	RemoteRefs RemoteRefs
 }

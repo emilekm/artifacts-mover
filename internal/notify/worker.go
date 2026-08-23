@@ -6,36 +6,17 @@ import (
 	"log/slog"
 
 	"github.com/emilekm/artifacts-mover/internal/db"
+	"github.com/emilekm/artifacts-mover/internal/jobs"
 	"github.com/emilekm/artifacts-mover/internal/types"
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/rivertype"
-	"gorm.io/gorm"
 )
 
 type Notifier interface {
 	Notify(ctx context.Context, msgID *string, artifacts types.Round) (string, error)
 }
 
-type SyncNotificationArgs struct {
-	RoundID uint
-}
-
-func (SyncNotificationArgs) Kind() string { return "notify" }
-
-func (SyncNotificationArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{
-		UniqueOpts: river.UniqueOpts{
-			ByArgs: true,
-			ByState: []rivertype.JobState{
-				rivertype.JobStateAvailable,
-				rivertype.JobStateRetryable,
-			},
-		},
-	}
-}
-
 type Worker struct {
-	river.WorkerDefaults[SyncNotificationArgs]
+	river.WorkerDefaults[jobs.SyncNotificationArgs]
 
 	logger *slog.Logger
 	db     *db.DB
@@ -55,12 +36,9 @@ func (w *Worker) Register(serverID string, notifier Notifier) {
 	w.notifiers[serverID] = notifier
 }
 
-func (w *Worker) Work(ctx context.Context, job *river.Job[SyncNotificationArgs]) error {
+func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.SyncNotificationArgs]) error {
 	roundID := job.Args.RoundID
-	round, err := gorm.G[db.Round](w.db.DB).Preload("Artifacts", func(db gorm.PreloadBuilder) error {
-		db.Where("uploaded = ?", true)
-		return nil
-	}).Where("id = ?", roundID).First(ctx)
+	round, err := w.db.Round(ctx, roundID)
 	if err != nil {
 		return err
 	}
@@ -76,7 +54,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[SyncNotificationArgs])
 	}
 
 	if round.DiscordMessageID == nil || msgID != *round.DiscordMessageID {
-		_, err = gorm.G[db.Round](w.db.DB).Where("id = ?", roundID).Update(ctx, "discord_message_id", msgID)
+		err = w.db.UpdateMessageID(ctx, roundID, msgID)
 		if err != nil {
 			return err
 		}

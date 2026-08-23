@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -9,10 +10,12 @@ import (
 	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/config"
+	"github.com/emilekm/artifacts-mover/internal/db"
+	"github.com/emilekm/artifacts-mover/internal/log"
 	applog "github.com/emilekm/artifacts-mover/internal/log"
-	"github.com/emilekm/artifacts-mover/internal/store"
 	"github.com/emilekm/artifacts-mover/internal/types"
 	"github.com/emilekm/go-prbf2/prdemo"
+	"github.com/riverqueue/river"
 )
 
 // Scanner rebuilds the rounds that already exist on disk at startup and enqueues
@@ -20,7 +23,8 @@ import (
 // takes over live from there.
 type Scanner struct {
 	logger    *slog.Logger
-	store     store.Store
+	db        *db.DB
+	river     *river.Client[*sql.Tx]
 	handler   fileHandler
 	artifacts config.ArtifactsConfig
 	serverID  string
@@ -28,14 +32,16 @@ type Scanner struct {
 
 func NewScanner(
 	logger *slog.Logger,
-	stateStore store.Store,
+	db *db.DB,
+	river *river.Client[*sql.Tx],
 	handler fileHandler,
 	artifactsConfig config.ArtifactsConfig,
 	serverID string,
 ) *Scanner {
 	return &Scanner{
 		logger:    logger,
-		store:     stateStore,
+		db:        db,
+		river:     river,
 		handler:   handler,
 		artifacts: artifactsConfig,
 		serverID:  serverID,
@@ -66,7 +72,7 @@ func (s *Scanner) Scan(ctx context.Context) (map[string]struct{}, error) {
 	// scan is still running, and every round it finds has to be older than the
 	// ones still to come.
 	sort.Slice(rounds, func(i, j int) bool {
-		return rounds[i].RoundID < rounds[j].RoundID
+		return rounds[i][types.ArtifactTypePRDemo].Timestamp.Before(rounds[j][types.ArtifactTypePRDemo].Timestamp)
 	})
 
 	consumed := make(map[string]struct{})
@@ -74,16 +80,19 @@ func (s *Scanner) Scan(ctx context.Context) (map[string]struct{}, error) {
 		if err := ctx.Err(); err != nil {
 			return consumed, err
 		}
-		if err := s.store.EnqueueRound(round); err != nil {
+
+		timestamp := round[types.ArtifactTypePRDemo].Timestamp
+
+		err := s.db.EnqueueRound(ctx, s.river, s.serverID, timestamp, round)
+		if err != nil {
 			s.logger.LogAttrs(
-				ctx, slog.LevelDebug,
-				"scanner: failed to enqueue round",
-				applog.ServerID(s.serverID),
-				applog.RoundID(round.RoundID),
-				applog.Error(err),
+				ctx, slog.LevelError,
+				"handler: failed to enqueue round",
+				log.ServerID(s.serverID),
+				log.Error(err),
 			)
 		}
-		for _, artifact := range round.Artifacts {
+		for _, artifact := range round {
 			consumed[filepath.Clean(artifact.Path)] = struct{}{}
 		}
 	}
@@ -122,14 +131,14 @@ func (s *Scanner) list(typ types.ArtifactType) ([]types.Artifact, error) {
 	var out []types.Artifact
 	for _, path := range paths {
 		a := types.NewArtifact(path, typ)
-		if a.Timestamp == nil {
+		if a.Timestamp == (time.Time{}) {
 			continue
 		}
 		out = append(out, a)
 	}
 
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].Timestamp.Before(*out[j].Timestamp)
+		return out[i].Timestamp.Before(out[j].Timestamp)
 	})
 	return out, nil
 }
@@ -160,7 +169,7 @@ func matchRounds(
 
 	summaryByTS := make(map[time.Time]types.Artifact, len(summaries))
 	for _, sm := range summaries {
-		summaryByTS[*sm.Timestamp] = sm
+		summaryByTS[sm.Timestamp] = sm
 	}
 
 	var rounds []types.Round
@@ -171,13 +180,13 @@ func matchRounds(
 	var cur *prdemoEntry
 	for bi := range bf2demos {
 		bf := bf2demos[bi]
-		for pi < len(entries) && !entries[pi].artifact.Timestamp.After(*bf.Timestamp) {
+		for pi < len(entries) && !entries[pi].artifact.Timestamp.After(bf.Timestamp) {
 			cur = &entries[pi]
 			pi++
 		}
 
 		if cur != nil {
-			gap := int(bf.Timestamp.Sub(*cur.artifact.Timestamp) / time.Second)
+			gap := int(bf.Timestamp.Sub(cur.artifact.Timestamp) / time.Second)
 			if b, err := briefing(cur.artifact.Path); err == nil && (gap == b || gap == b-1) {
 				cur.matched = true
 				rounds = append(rounds, buildRound(serverID, cur.artifact, &bf, summaryByTS))
@@ -209,18 +218,17 @@ func buildRound(
 	bf2Demo *types.Artifact,
 	summaryByTS map[time.Time]types.Artifact,
 ) types.Round {
-	round := types.NewRound(serverID)
-	round.RoundID = prDemo.Timestamp.Format(time.RFC3339)
-	round.Artifacts[types.ArtifactTypePRDemo] = prDemo
+	round := make(types.Round)
+	round[types.ArtifactTypePRDemo] = prDemo
 
 	if bf2Demo != nil {
-		round.Artifacts[types.ArtifactTypeBF2Demo] = *bf2Demo
+		round[types.ArtifactTypeBF2Demo] = *bf2Demo
 	}
-	if summary, ok := summaryByTS[*prDemo.Timestamp]; ok {
-		round.Artifacts[types.ArtifactTypeSummary] = summary
+	if summary, ok := summaryByTS[prDemo.Timestamp]; ok {
+		round[types.ArtifactTypeSummary] = summary
 	}
 
-	return *round
+	return round
 }
 
 func decodeBriefing(path string) (int, error) {

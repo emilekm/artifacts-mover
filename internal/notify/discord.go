@@ -25,6 +25,7 @@ Ended: <t:%d:R> | <t:%d:F>`
 
 type discordSession interface {
 	ChannelMessageSendComplex(channelID string, msg *discordgo.MessageSend, opts ...discordgo.RequestOption) (*discordgo.Message, error)
+	ChannelMessageEditComplex(m *discordgo.MessageEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
 }
 
 type DiscordNotifier struct {
@@ -44,6 +45,10 @@ func NewDiscordNotifier(logger *slog.Logger, session discordSession, conf config
 }
 
 func (n *DiscordNotifier) Notify(ctx context.Context, msgID *string, round types.Round) (string, error) {
+	if msgID != nil {
+		return n.patchButtons(ctx, *msgID, round)
+	}
+
 	summaryFile, err := os.Open(round[types.ArtifactTypeSummary].Path)
 	if err != nil {
 		return "", err
@@ -57,14 +62,13 @@ func (n *DiscordNotifier) Notify(ctx context.Context, msgID *string, round types
 
 	summary := Summary{
 		JSONSummary: jsonSummary,
+		PRDemoPath:  round[types.ArtifactTypePRDemo].Path,
+		RemoteRefs:  n.refs(round),
 	}
-
-	summary.PRDemoPath = round[types.ArtifactTypePRDemo].Path
-	summary.RemoteRefs = n.refs(round)
 
 	if t1, t2, err := extractTickets(summary.PRDemoPath); err != nil {
 		n.logger.LogAttrs(
-			ctx, slog.LevelError,
+			ctx, slog.LevelWarn,
 			"discord_notifier: failed to extract tickets",
 			applog.Path(summary.PRDemoPath),
 			applog.Error(err),
@@ -94,53 +98,84 @@ func (n *DiscordNotifier) Notify(ctx context.Context, msgID *string, round types
 	return n.send(ctx, &summary)
 }
 
+func (n *DiscordNotifier) patchButtons(ctx context.Context, msgID string, round types.Round) (string, error) {
+	components := []discordgo.MessageComponent{
+		linkButtons(n.refs(round)),
+	}
+
+	msg := &discordgo.MessageEdit{
+		ID:         msgID,
+		Channel:    n.channelID,
+		Components: &components,
+	}
+
+	_, err := n.session.ChannelMessageEditComplex(msg, discordgo.WithContext(ctx))
+	if err != nil {
+		return "", err
+	}
+
+	return msgID, nil
+}
+
 // refs builds the remote links from the local filenames. They are known before
 // the upload finishes, and stay dead until it does.
-func (n *DiscordNotifier) refs(artifacts map[types.ArtifactType]types.Artifact) config.RemoteURLs {
-	var refs config.RemoteURLs
+func (n *DiscordNotifier) refs(round types.Round) RemoteRefs {
+	var refs RemoteRefs
 
-	if prDemo, ok := artifacts[types.ArtifactTypePRDemo]; ok {
-		refs.PRDemo = fmt.Sprintf(n.remoteURLs.PRDemo, filepath.Base(prDemo.Path))
-		refs.TrackerViewer = fmt.Sprintf(n.remoteURLs.TrackerViewer, filepath.Base(prDemo.Path))
+	if prDemo, ok := round[types.ArtifactTypePRDemo]; ok {
+		enabled := false
+		if prDemo.Uploaded {
+			enabled = true
+		}
+		refs.PRDemo = Ref{
+			Enabled: enabled,
+			URL:     fmt.Sprintf(n.remoteURLs.PRDemo, filepath.Base(prDemo.Path)),
+		}
+		refs.TrackerViewer = Ref{
+			Enabled: enabled,
+			URL:     fmt.Sprintf(n.remoteURLs.TrackerViewer, filepath.Base(prDemo.Path)),
+		}
 	}
-	if bf2Demo, ok := artifacts[types.ArtifactTypeBF2Demo]; ok {
-		refs.BF2Demo = fmt.Sprintf(n.remoteURLs.BF2Demo, bf2Demo.Path)
+	if bf2Demo, ok := round[types.ArtifactTypeBF2Demo]; ok {
+		enabled := false
+		if bf2Demo.Uploaded {
+			enabled = true
+		}
+		refs.BF2Demo = Ref{
+			Enabled: enabled,
+			URL:     fmt.Sprintf(n.remoteURLs.BF2Demo, bf2Demo.Path),
+		}
 	}
 
 	return refs
 }
 
-func linkButtons(refs config.RemoteURLs) discordgo.ActionsRow {
+var labels = [3]string{
+	"Download Battle Recorder",
+	"Download Tracker",
+	"View Tracker",
+}
+
+func linkButtons(refs RemoteRefs) discordgo.ActionsRow {
 	row := discordgo.ActionsRow{}
 
-	if refs.BF2Demo != "" {
+	for i, ref := range [3]Ref{
+		refs.BF2Demo,
+		refs.PRDemo,
+		refs.TrackerViewer,
+	} {
 		row.Components = append(row.Components, discordgo.Button{
-			Label: "Download Battle Recorder",
-			URL:   refs.BF2Demo,
-			Style: discordgo.LinkButton,
-		})
-	}
-
-	if refs.PRDemo != "" {
-		row.Components = append(row.Components, discordgo.Button{
-			Label: "Download Tracker",
-			URL:   refs.PRDemo,
-			Style: discordgo.LinkButton,
-		})
-	}
-
-	if refs.TrackerViewer != "" {
-		row.Components = append(row.Components, discordgo.Button{
-			Label: "View Tracker",
-			URL:   refs.TrackerViewer,
-			Style: discordgo.LinkButton,
+			Label:    labels[i],
+			URL:      ref.URL,
+			Style:    discordgo.LinkButton,
+			Disabled: !ref.Enabled,
 		})
 	}
 
 	return row
 }
 
-func (n *DiscordNotifier) send(ctx context.Context, summary *Summary) error {
+func (n *DiscordNotifier) send(ctx context.Context, summary *Summary) (string, error) {
 	msg := &discordgo.MessageSend{
 		Files: make([]*discordgo.File, 0),
 	}
@@ -205,6 +240,9 @@ func (n *DiscordNotifier) send(ctx context.Context, summary *Summary) error {
 
 	msg.Components = []discordgo.MessageComponent{row}
 
-	_, err = n.session.ChannelMessageSendComplex(n.channelID, msg, discordgo.WithContext(ctx))
-	return err
+	result, err := n.session.ChannelMessageSendComplex(n.channelID, msg, discordgo.WithContext(ctx))
+	if err != nil {
+		return "", err
+	}
+	return result.ID, nil
 }

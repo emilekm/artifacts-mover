@@ -43,7 +43,8 @@ func (i *ArtifactType) UnmarshalText(text []byte) error {
 type Artifact struct {
 	Type      ArtifactType
 	Path      string
-	Timestamp *time.Time
+	Timestamp time.Time
+	Uploaded  bool
 }
 
 func NewArtifact(path string, typ ArtifactType) Artifact {
@@ -52,7 +53,7 @@ func NewArtifact(path string, typ ArtifactType) Artifact {
 		Type: typ,
 	}
 	if timestamp, found := artifactTimestamp(path); found {
-		a.Timestamp = &timestamp
+		a.Timestamp = timestamp
 	}
 	return a
 }

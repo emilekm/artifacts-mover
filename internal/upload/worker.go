@@ -7,24 +7,17 @@ import (
 	"log/slog"
 
 	"github.com/emilekm/artifacts-mover/internal/db"
-	"github.com/emilekm/artifacts-mover/internal/notify"
+	"github.com/emilekm/artifacts-mover/internal/jobs"
 	"github.com/emilekm/artifacts-mover/internal/types"
 	"github.com/riverqueue/river"
-	"gorm.io/gorm"
 )
 
-type UploadArgs struct {
-	ArtifactID uint
-}
-
-func (UploadArgs) Kind() string { return "upload" }
-
 type Uploader interface {
-	Upload(ctx context.Context, path string, typ types.ArtifactType) error
+	Upload(ctx context.Context, artifact types.Artifact) error
 }
 
 type Worker struct {
-	river.WorkerDefaults[UploadArgs]
+	river.WorkerDefaults[jobs.UploadArgs]
 
 	logger *slog.Logger
 	db     *db.DB
@@ -44,9 +37,9 @@ func (w *Worker) Register(serverID string, uploader Uploader) {
 	w.uploaders[serverID] = uploader
 }
 
-func (w *Worker) Work(ctx context.Context, job *river.Job[UploadArgs]) error {
+func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.UploadArgs]) error {
 	artifactID := job.Args.ArtifactID
-	artifact, err := gorm.G[db.Artifact](w.db.DB).Where("id = ?", artifactID).Preload("Round", nil).First(ctx)
+	artifact, err := w.db.Artifact(ctx, artifactID)
 	if err != nil {
 		return err
 	}
@@ -61,32 +54,10 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[UploadArgs]) error {
 		return fmt.Errorf("upload_no_handler")
 	}
 
-	err = uploader.Upload(ctx, artifact.Path, artifact.Type)
+	err = uploader.Upload(ctx, artifact.Artifact)
 	if err != nil {
 		return err
 	}
 
-	tx := w.db.Begin()
-	if tx.Error != nil {
-		return tx.Error
-	}
-	defer tx.Rollback()
-
-	sqlTx := tx.Statement.Statement.ConnPool.(*sql.Tx)
-	client := river.ClientFromContext[*sql.Tx](ctx)
-
-	_, err = gorm.G[db.Artifact](tx).Where("id = ?", artifactID).Update(ctx, "uploaded", true)
-	if err != nil {
-		return err
-	}
-
-	_, err = client.InsertTx(ctx, sqlTx, notify.SyncNotificationArgs{
-		RoundID: artifact.RoundID,
-	}, nil)
-	if err != nil {
-		return err
-	}
-
-	tx.Commit()
-	return nil
+	return w.db.MarkUploaded(ctx, river.ClientFromContext[*sql.Tx](ctx), artifactID)
 }

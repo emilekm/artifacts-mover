@@ -2,22 +2,25 @@ package ingest
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/config"
+	"github.com/emilekm/artifacts-mover/internal/db"
 	"github.com/emilekm/artifacts-mover/internal/log"
-	"github.com/emilekm/artifacts-mover/internal/store"
 	"github.com/emilekm/artifacts-mover/internal/types"
+	"github.com/riverqueue/river"
 )
 
 const typesCount = 3
 
 type Handler struct {
 	logger       *slog.Logger
-	store        store.Store
+	db           *db.DB
+	river        *river.Client[*sql.Tx]
 	locToTyp     map[string]types.ArtifactType
 	roundTimeout time.Duration
 	serverID     string
@@ -33,7 +36,8 @@ type Handler struct {
 func NewHandler(
 	ctx context.Context,
 	logger *slog.Logger,
-	stateStore store.Store,
+	db *db.DB,
+	riverClient *river.Client[*sql.Tx],
 	artifactsConfig config.ArtifactsConfig,
 	roundTimeout time.Duration,
 	serverID string,
@@ -47,7 +51,8 @@ func NewHandler(
 	ctx, cancel := context.WithCancel(ctx)
 	h := &Handler{
 		logger:       logger,
-		store:        stateStore,
+		db:           db,
+		river:        riverClient,
 		locToTyp:     locToType,
 		roundTimeout: roundTimeout,
 		currentRound: make(types.Round),
@@ -117,29 +122,21 @@ func (h *Handler) endCurrentRoundLocked() {
 		h.roundTimer.Stop()
 	}
 
-	if len(h.currentRound.Artifacts) == 0 {
+	if len(h.currentRound) == 0 {
 		return
 	}
 
 	round := h.currentRound
-	h.currentRound = types.NewRound(h.serverID)
+	h.currentRound = make(types.Round)
 
 	timestamp := round[types.ArtifactTypePRDemo].Timestamp
-	if timestamp == nil {
-		t := time.Now().UTC()
-		timestamp = &t
-	}
 
-	roundID := timestamp.Format(time.RFC3339)
-	round.RoundID = roundID
-
-	err := h.store.EnqueueRound(*round)
+	err := h.db.EnqueueRound(h.ctx, h.river, h.serverID, timestamp, round)
 	if err != nil {
 		h.logger.LogAttrs(
 			h.ctx, slog.LevelError,
-			"handler: failed to enqueu round",
+			"handler: failed to enqueue round",
 			log.ServerID(h.serverID),
-			log.RoundID(roundID),
 			log.Error(err),
 		)
 	}

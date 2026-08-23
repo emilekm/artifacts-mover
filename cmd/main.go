@@ -19,9 +19,7 @@ import (
 	"github.com/emilekm/artifacts-mover/internal/config"
 	"github.com/emilekm/artifacts-mover/internal/db"
 	"github.com/emilekm/artifacts-mover/internal/ingest"
-	applog "github.com/emilekm/artifacts-mover/internal/log"
 	"github.com/emilekm/artifacts-mover/internal/notify"
-	"github.com/emilekm/artifacts-mover/internal/store"
 	"github.com/emilekm/artifacts-mover/internal/types"
 	"github.com/emilekm/artifacts-mover/internal/upload"
 	"golang.org/x/sync/errgroup"
@@ -30,14 +28,13 @@ import (
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riversqlite"
+	"github.com/riverqueue/river/rivermigrate"
 )
 
 const (
-	defaultRoundTimeout       = 4*time.Hour + 10*time.Minute
-	defaultStateStorePath     = "state.db"
-	defaultStateRetentionDays = 7
-	defaultNotifyRetryWindow  = time.Hour
-	purgeInterval             = 6 * time.Hour
+	defaultRoundTimeout   = 4*time.Hour + 10*time.Minute
+	defaultStateStorePath = "state.db"
+	purgeInterval         = 6 * time.Hour
 )
 
 var configPath = flag.String("config", "config.yaml", "path to config file")
@@ -72,11 +69,6 @@ func run(ctx context.Context, confPath string) error {
 		return err
 	}
 
-	stateStorePath := conf.StateStorePath
-	if stateStorePath == "" {
-		stateStorePath = defaultStateStorePath
-	}
-
 	dbPool, err := sql.Open("sqlite", "file:./river.sqlite3")
 	if err != nil {
 		return err
@@ -89,6 +81,17 @@ func run(ctx context.Context, confPath string) error {
 	if err != nil {
 		return err
 	}
+
+	migrator, err := rivermigrate.New(riversqlite.New(dbPool), nil)
+	if err != nil {
+		return err
+	}
+
+	_, err = migrator.Migrate(ctx, rivermigrate.DirectionUp, nil)
+	if err != nil {
+		return err
+	}
+
 	uploads := upload.NewWorker(logger, db)
 	notifications := notify.NewWorker(logger, db)
 
@@ -105,16 +108,6 @@ func run(ctx context.Context, confPath string) error {
 	})
 	if err != nil {
 		return err
-	}
-
-	retentionDays := conf.StateRetentionDays
-	if retentionDays == 0 {
-		retentionDays = defaultStateRetentionDays
-	}
-
-	notifyRetryWindow := time.Duration(conf.NotifyRetryWindowHours) * time.Hour
-	if notifyRetryWindow == 0 {
-		notifyRetryWindow = defaultNotifyRetryWindow
 	}
 
 	watcher := ingest.NewWatcher(logger)
@@ -135,10 +128,10 @@ func run(ctx context.Context, confPath string) error {
 			roundTimeout = defaultRoundTimeout
 		}
 
-		handler := ingest.NewHandler(ctx, logger, stateStore, server.Artifacts, roundTimeout, name)
+		handler := ingest.NewHandler(ctx, logger, db, riverClient, server.Artifacts, roundTimeout, name)
 		defer handler.Close()
 
-		scanners = append(scanners, ingest.NewScanner(logger, stateStore, handler, server.Artifacts, name))
+		scanners = append(scanners, ingest.NewScanner(logger, db, riverClient, handler, server.Artifacts, name))
 
 		paths := make([]string, 0, len(server.Artifacts))
 		for _, loc := range server.Artifacts {
@@ -154,8 +147,7 @@ func run(ctx context.Context, confPath string) error {
 
 	group, ctx := errgroup.WithContext(ctx)
 	group.Go(func() error { return watcher.Run(ctx, scanAll(scanners)) })
-	group.Go(func() error { return notifications.Watch(ctx) })
-	group.Go(func() error { return purgeLoop(ctx, logger, stateStore, retentionDays) })
+	group.Go(func() error { return riverClient.Start(ctx) })
 
 	return group.Wait()
 }
@@ -228,23 +220,5 @@ func scanAll(scanners []*ingest.Scanner) func(context.Context) (map[string]struc
 		}
 
 		return consumed, errors.Join(errs...)
-	}
-}
-
-func purgeLoop(ctx context.Context, logger *slog.Logger, stateStore store.Store, retentionDays int) error {
-	ticker := time.NewTicker(purgeInterval)
-	defer ticker.Stop()
-
-	for {
-		cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
-		if err := stateStore.PurgeCompleted(cutoff); err != nil {
-			logger.LogAttrs(ctx, slog.LevelError, "store: failed to purge completed rounds", applog.Error(err))
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
 	}
 }

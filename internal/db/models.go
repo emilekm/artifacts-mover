@@ -9,10 +9,9 @@ import (
 
 type Artifact struct {
 	gorm.Model
-	RoundID  uint
-	Round    Round
-	Uploaded bool
 	types.Artifact
+	RoundID uint
+	Round   Round
 }
 
 type Round struct {

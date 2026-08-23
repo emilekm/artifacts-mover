@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/emilekm/artifacts-mover/internal/db"
 	"github.com/emilekm/artifacts-mover/internal/jobs"
+	applog "github.com/emilekm/artifacts-mover/internal/log"
 	"github.com/emilekm/artifacts-mover/internal/types"
 	"github.com/riverqueue/river"
 )
@@ -58,6 +60,30 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.SyncNotificationA
 		if err != nil {
 			return err
 		}
+	}
+
+	allUploaded := true
+	for _, artifact := range round.Artifacts {
+		if !artifact.Uploaded {
+			allUploaded = false
+			break
+		}
+	}
+
+	if allUploaded {
+		go func(round types.Round) {
+			for _, artifact := range round {
+				err := os.Remove(artifact.Path)
+				if err != nil {
+					w.logger.LogAttrs(
+						context.TODO(), slog.LevelError,
+						"notify: failed to remove file",
+						applog.Path(artifact.Path),
+						applog.Error(err),
+					)
+				}
+			}
+		}(round.ArtifactsByType)
 	}
 
 	return nil

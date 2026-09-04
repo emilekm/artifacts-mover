@@ -22,7 +22,7 @@ type SCPConfig struct {
 
 type HTTPSAuth struct {
 	Basic   *BasicAuth        `yaml:"basic,omitempty"`
-	Headers map[string]string `yaml:"header,omitempty"`
+	Headers map[string]string `yaml:"headers,omitempty"`
 }
 
 type HTTPSConfig struct {
@@ -66,10 +66,7 @@ type Server struct {
 }
 
 type Config struct {
-	StateStorePath         string             `yaml:"stateStorePath"`
-	StateRetentionDays     int                `yaml:"stateRetentionDays"`
-	NotifyRetryWindowHours int                `yaml:"notifyRetryWindowHours"`
-	Servers                map[string]*Server `yaml:"servers"`
+	Servers map[string]*Server `yaml:"servers"`
 }
 
 func New(filename string) (*Config, error) {

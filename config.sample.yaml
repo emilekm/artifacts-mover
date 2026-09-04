@@ -2,11 +2,14 @@ servers:
   my-server:
     types:
       bf2demo:
-        dir: /home/me/my-server/bf2demos/
+        location: /home/me/my-server/bf2demos/
+        uploadPath: bf2demos
       prdemo:
-        dir: /home/me/my-server/prdemos/
+        location: /home/me/my-server/prdemos/
+        uploadPath: prdemos
       summary:
-        dir: /home/me/my-server/summaries/
+        location: /home/me/my-server/summaries/
+        uploadPath: summaries
 
     upload:
       scp:
@@ -16,6 +19,7 @@ servers:
         basePath: /var/www/my-server
 
     discord:
+      channelID: "123456789012345678"
       urls:
         bf2demo: https://my-server.com/bf2demos/%s
         prdemo: https://my-server.com/prdemos/%s
@@ -24,11 +28,14 @@ servers:
   my-server-2:
     types:
       bf2demo:
-        dir: /home/me/my-server-2/bf2demos/
+        location: /home/me/my-server-2/bf2demos/
+        uploadPath: bf2demos
       prdemo:
-        dir: /home/me/my-server-2/prdemos/
+        location: /home/me/my-server-2/prdemos/
+        uploadPath: prdemos
       summary:
-        dir: /home/me/my-serve-2r/summaries/
+        location: /home/me/my-serve-2r/summaries/
+        uploadPath: summaries
 
     upload:
       https:

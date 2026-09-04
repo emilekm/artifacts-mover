@@ -32,9 +32,7 @@ import (
 )
 
 const (
-	defaultRoundTimeout   = 4*time.Hour + 10*time.Minute
-	defaultStateStorePath = "state.db"
-	purgeInterval         = 6 * time.Hour
+	defaultRoundTimeout = 4*time.Hour + 10*time.Minute
 )
 
 var configPath = flag.String("config", "config.yaml", "path to config file")

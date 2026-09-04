@@ -16,7 +16,6 @@ servers:
         basePath: /var/www/my-server
 
     discord:
-      webhookURL: https://discord.com/api/webhooks/...
       urls:
         bf2demo: https://my-server.com/bf2demos/%s
         prdemo: https://my-server.com/prdemos/%s

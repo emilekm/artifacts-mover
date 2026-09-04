@@ -3,6 +3,7 @@ package upload
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 
@@ -19,6 +20,10 @@ type scpUploader struct {
 }
 
 func NewSCPUploader(conf config.SCPConfig, uploadPaths map[types.ArtifactType]string) (*scpUploader, error) {
+	if err := trustHostKey(conf.Address); err != nil {
+		return nil, fmt.Errorf("scp_uploader: error while trusting host key: %w", err)
+	}
+
 	return &scpUploader{
 		basePath:    conf.BasePath,
 		uploadPaths: uploadPaths,
@@ -26,6 +31,35 @@ func NewSCPUploader(conf config.SCPConfig, uploadPaths map[types.ArtifactType]st
 		username:    conf.Username,
 		privKeyFile: conf.PrivateKeyFile,
 	}, nil
+}
+
+// trustHostKey pins the host's SSH key to known_hosts via ssh-keyscan so
+// scp does not prompt for (or fail on) host key confirmation.
+func trustHostKey(address string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("could not determine home directory: %w", err)
+	}
+
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		return fmt.Errorf("could not create ssh directory: %w", err)
+	}
+
+	knownHostsFile := filepath.Join(sshDir, "known_hosts")
+	f, err := os.OpenFile(knownHostsFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("could not open known_hosts: %w", err)
+	}
+	defer f.Close()
+
+	cmd := exec.Command("ssh-keyscan", "-H", address)
+	cmd.Stdout = f
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("could not scan host key: %w", err)
+	}
+
+	return nil
 }
 
 func (u *scpUploader) Upload(ctx context.Context, artifact types.Artifact) error {

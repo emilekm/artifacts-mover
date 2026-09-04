@@ -22,7 +22,9 @@ type DB struct {
 func NewDB(pool *sql.DB) (*DB, error) {
 	db, err := gorm.Open(sqlite.New(sqlite.Config{
 		Conn: pool,
-	}))
+	}), &gorm.Config{
+		TranslateError: true,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +52,12 @@ func (db *DB) EnqueueRound(ctx context.Context, riverClient *river.Client[*sql.T
 
 	result := gorm.WithResult()
 	err := gorm.G[Round](tx, result).Create(ctx, &dbRound)
-	if err != nil && !errors.Is(err, gorm.ErrCheckConstraintViolated) {
+	if err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			// Round already exists (e.g. rediscovered on a rescan) — it was already
+			// enqueued once, so skip re-inserting jobs against a zero-value round.
+			return tx.Commit().Error
+		}
 		return err
 	}
 

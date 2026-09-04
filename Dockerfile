@@ -1,4 +1,4 @@
-FROM golang:1.24 AS build
+FROM golang:1.26 AS build
 
 WORKDIR /app
 
@@ -8,9 +8,9 @@ COPY go.sum .
 RUN go mod download
 
 COPY internal internal
-COPY main.go .
+COPY cmd cmd
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o /artifacts-mover ./
+RUN CGO_ENABLED=0 GOOS=linux go build -o /artifacts-mover ./cmd
 
 FROM alpine:3.21
 

@@ -14,6 +14,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /artifacts-mover ./cmd
 
 FROM alpine:3.21
 
+RUN apk add --no-cache openssh-client
+
 WORKDIR /app
 
 COPY --from=build /artifacts-mover /artifacts-mover

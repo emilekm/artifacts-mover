@@ -50,11 +50,6 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.UploadArgs]) erro
 
 	uploader, ok := w.uploaders[artifact.Round.ServerID]
 	if !ok {
-		// w.logger.LogAttrs(
-		// 	ctx, slog.LevelError,
-		// 	"upload: didnt find handler",
-		// 	applog.ServerID(serverID),
-		// )
 		return fmt.Errorf("upload_no_handler")
 	}
 

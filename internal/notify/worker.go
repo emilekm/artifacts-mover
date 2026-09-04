@@ -136,7 +136,7 @@ L:
 		go func(round types.Round) {
 			for _, artifact := range round {
 				err := os.Remove(artifact.Path)
-				if err != nil {
+				if err != nil && !os.IsNotExist(err) {
 					w.logger.LogAttrs(
 						context.TODO(), slog.LevelError,
 						"notify: failed to remove file",

@@ -57,7 +57,7 @@ func (n *DiscordNotifier) Notify(ctx context.Context, round types.Round) (string
 	return n.send(ctx, summary, "")
 }
 
-func (n *DiscordNotifier) NotifyReserved(ctx context.Context, round types.Round, msgID string) error {
+func (n *DiscordNotifier) NotifyReserved(ctx context.Context, msgID string, round types.Round) error {
 	summary, err := n.prepareSummary(ctx, round)
 	if err != nil {
 		return err

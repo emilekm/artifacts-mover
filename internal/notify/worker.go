@@ -25,7 +25,7 @@ const (
 type Notifier interface {
 	PatchButtons(ctx context.Context, msgID string, round types.Round) error
 	Notify(ctx context.Context, round types.Round) (string, error)
-	NotifyReserved(ctx context.Context, round types.Round, msgID string) error
+	NotifyReserved(ctx context.Context, msgID string, round types.Round) error
 	ReserveMessageID(ctx context.Context, timestamp time.Time) (string, error)
 	RemoveMessage(ctx context.Context, msgID string) error
 }
@@ -129,7 +129,12 @@ L:
 
 	if strings.HasPrefix(msgID, msgIDPrefix) {
 		msgID = strings.TrimPrefix(msgID, msgIDPrefix)
-		err = notifier.NotifyReserved(ctx, round.ArtifactsByType, msgID)
+		err = notifier.NotifyReserved(ctx, msgID, round.ArtifactsByType)
+		if err != nil {
+			return err
+		}
+	} else if msgID != "" {
+		err = notifier.PatchButtons(ctx, msgID, round.ArtifactsByType)
 		if err != nil {
 			return err
 		}

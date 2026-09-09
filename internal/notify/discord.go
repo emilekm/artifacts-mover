@@ -284,6 +284,8 @@ func (n *DiscordNotifier) send(ctx context.Context, summary *Summary, msgID stri
 
 	if msgID != "" {
 		_, err := n.session.ChannelMessageEditComplex(&discordgo.MessageEdit{
+			ID:         msgID,
+			Channel:    n.channelID,
 			Components: &msg.Components,
 			Files:      msg.Files,
 			Embeds:     &msg.Embeds,

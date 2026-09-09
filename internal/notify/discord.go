@@ -124,7 +124,6 @@ func (n *DiscordNotifier) prepareSummary(ctx context.Context, round types.Round)
 	if err != nil {
 		return nil, err
 	}
-	defer prDemo.Close()
 
 	summary.PRDemoFile = prDemo
 

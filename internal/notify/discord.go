@@ -124,8 +124,7 @@ func (n *DiscordNotifier) prepareSummary(ctx context.Context, round types.Round)
 	if err != nil {
 		return nil, err
 	}
-
-	summary.PRDemoFile = prDemo
+	defer prDemo.Close()
 
 	summary.Image, err = createImage(&summary)
 	if err != nil {
@@ -220,10 +219,15 @@ func (n *DiscordNotifier) send(ctx context.Context, summary *Summary, msgID stri
 
 	row := linkButtons(summary.RemoteRefs)
 
-	if summary.PRDemoFile != nil {
+	if summary.PRDemoPath != "" {
+		prDemoFile, err := os.Open(summary.PRDemoPath)
+		if err != nil {
+			return "", err
+		}
+		defer prDemoFile.Close()
 		msg.Files = append(msg.Files, &discordgo.File{
 			Name:   filepath.Base(summary.PRDemoPath),
-			Reader: summary.PRDemoFile,
+			Reader: prDemoFile,
 		})
 	}
 

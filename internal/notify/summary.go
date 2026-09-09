@@ -37,7 +37,6 @@ type Summary struct {
 	JSONSummary
 
 	PRDemoPath string
-	PRDemoFile io.Reader
 	Image      io.Reader
 	RemoteRefs RemoteRefs
 }

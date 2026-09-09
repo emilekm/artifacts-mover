@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -17,7 +16,6 @@ import (
 )
 
 const (
-	msgIDPrefix         = "__reserved"
 	embedDescriptionFmt = `**_%s, %s_**
 
 Duration: %d minutes
@@ -28,6 +26,7 @@ Ended: <t:%d:R> | <t:%d:F>`
 type discordSession interface {
 	ChannelMessageSendComplex(channelID string, msg *discordgo.MessageSend, opts ...discordgo.RequestOption) (*discordgo.Message, error)
 	ChannelMessageEditComplex(m *discordgo.MessageEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	ChannelMessageDelete(channelID, messageID string, options ...discordgo.RequestOption) (err error)
 }
 
 type DiscordNotifier struct {
@@ -46,20 +45,61 @@ func NewDiscordNotifier(logger *slog.Logger, session discordSession, conf config
 	}
 }
 
-func (n *DiscordNotifier) Notify(ctx context.Context, msgID *string, round types.Round) (string, error) {
-	if msgID != nil && !strings.HasPrefix(*msgID, msgIDPrefix) {
-		return n.patchButtons(ctx, *msgID, round)
-	}
+func (n *DiscordNotifier) PatchButtons(ctx context.Context, msgID string, round types.Round) error {
+	return n.patchButtons(ctx, msgID, round)
+}
 
-	summaryFile, err := os.Open(round[types.ArtifactTypeSummary].Path)
+func (n *DiscordNotifier) Notify(ctx context.Context, round types.Round) (string, error) {
+	summary, err := n.prepareSummary(ctx, round)
 	if err != nil {
 		return "", err
 	}
+	return n.send(ctx, summary, "")
+}
+
+func (n *DiscordNotifier) NotifyReserved(ctx context.Context, round types.Round, msgID string) error {
+	summary, err := n.prepareSummary(ctx, round)
+	if err != nil {
+		return err
+	}
+	_, err = n.send(ctx, summary, msgID)
+	return err
+}
+
+func (n *DiscordNotifier) ReserveMessageID(ctx context.Context, timestamp time.Time) (string, error) {
+	msg := &discordgo.MessageSend{
+		Embeds: []*discordgo.MessageEmbed{
+			&discordgo.MessageEmbed{
+				Title:       "Round summary",
+				Type:        discordgo.EmbedTypeRich,
+				Description: fmt.Sprintf("Summary for round at %q is not available.", timestamp.Format(time.DateTime)),
+			},
+		},
+	}
+
+	resp, err := n.session.ChannelMessageSendComplex(n.channelID, msg, discordgo.WithContext(ctx))
+	if err != nil {
+		return "", err
+	}
+
+	return resp.ID, nil
+}
+
+func (n *DiscordNotifier) RemoveMessage(ctx context.Context, msgID string) error {
+	return n.session.ChannelMessageDelete(n.channelID, msgID, discordgo.WithContext(ctx))
+}
+
+func (n *DiscordNotifier) prepareSummary(ctx context.Context, round types.Round) (*Summary, error) {
+	summaryFile, err := os.Open(round[types.ArtifactTypeSummary].Path)
+	if err != nil {
+		return nil, err
+	}
+	defer summaryFile.Close()
 
 	var jsonSummary JSONSummary
 	err = json.NewDecoder(summaryFile).Decode(&jsonSummary)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	summary := Summary{
@@ -82,7 +122,7 @@ func (n *DiscordNotifier) Notify(ctx context.Context, msgID *string, round types
 
 	prDemo, err := os.Open(summary.PRDemoPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer prDemo.Close()
 
@@ -97,28 +137,10 @@ func (n *DiscordNotifier) Notify(ctx context.Context, msgID *string, round types
 		)
 	}
 
-	return n.send(ctx, &summary)
-}
-func (n *DiscordNotifier) ReserveMessageID(ctx context.Context, timestamp time.Time) (string, error) {
-	msg := &discordgo.MessageSend{
-		Embeds: []*discordgo.MessageEmbed{
-			&discordgo.MessageEmbed{
-				Title:       "Round summary",
-				Type:        discordgo.EmbedTypeRich,
-				Description: fmt.Sprintf("Summary for round at %q is not available.", timestamp.Format(time.DateTime)),
-			},
-		},
-	}
-
-	resp, err := n.session.ChannelMessageSendComplex(n.channelID, msg, discordgo.WithContext(ctx))
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%s-%s", msgIDPrefix, resp.ID), nil
+	return &summary, nil
 }
 
-func (n *DiscordNotifier) patchButtons(ctx context.Context, msgID string, round types.Round) (string, error) {
+func (n *DiscordNotifier) patchButtons(ctx context.Context, msgID string, round types.Round) error {
 	components := []discordgo.MessageComponent{
 		linkButtons(n.refs(round)),
 	}
@@ -131,10 +153,10 @@ func (n *DiscordNotifier) patchButtons(ctx context.Context, msgID string, round 
 
 	_, err := n.session.ChannelMessageEditComplex(msg, discordgo.WithContext(ctx))
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	return msgID, nil
+	return nil
 }
 
 // refs builds the remote links from the local filenames. They are known before
@@ -142,29 +164,20 @@ func (n *DiscordNotifier) patchButtons(ctx context.Context, msgID string, round 
 func (n *DiscordNotifier) refs(round types.Round) RemoteRefs {
 	var refs RemoteRefs
 
-	if prDemo, ok := round[types.ArtifactTypePRDemo]; ok {
-		enabled := false
-		if prDemo.Uploaded {
-			enabled = true
-		}
-		refs.PRDemo = Ref{
-			Enabled: enabled,
-			URL:     fmt.Sprintf(n.remoteURLs.PRDemo, filepath.Base(prDemo.Path)),
-		}
-		refs.TrackerViewer = Ref{
-			Enabled: enabled,
-			URL:     fmt.Sprintf(n.remoteURLs.TrackerViewer, filepath.Base(prDemo.Path)),
-		}
+	prDemo := round[types.ArtifactTypePRDemo]
+	refs.PRDemo = Ref{
+		Enabled: prDemo.Uploaded,
+		URL:     fmt.Sprintf(n.remoteURLs.PRDemo, filepath.Base(prDemo.Path)),
 	}
-	if bf2Demo, ok := round[types.ArtifactTypeBF2Demo]; ok {
-		enabled := false
-		if bf2Demo.Uploaded {
-			enabled = true
-		}
-		refs.BF2Demo = Ref{
-			Enabled: enabled,
-			URL:     fmt.Sprintf(n.remoteURLs.BF2Demo, bf2Demo.Path),
-		}
+	refs.TrackerViewer = Ref{
+		Enabled: prDemo.Uploaded,
+		URL:     fmt.Sprintf(n.remoteURLs.TrackerViewer, filepath.Base(prDemo.Path)),
+	}
+
+	bf2Demo := round[types.ArtifactTypeBF2Demo]
+	refs.BF2Demo = Ref{
+		Enabled: bf2Demo.Uploaded,
+		URL:     fmt.Sprintf(n.remoteURLs.BF2Demo, bf2Demo.Path),
 	}
 
 	return refs
@@ -195,8 +208,14 @@ func linkButtons(refs RemoteRefs) discordgo.ActionsRow {
 	return row
 }
 
-func (n *DiscordNotifier) send(ctx context.Context, summary *Summary) (string, error) {
-	msg := &discordgo.MessageSend{
+type discordMsg struct {
+	Embeds     []*discordgo.MessageEmbed    `json:"embeds"`
+	Components []discordgo.MessageComponent `json:"components"`
+	Files      []*discordgo.File            `json:"-"`
+}
+
+func (n *DiscordNotifier) send(ctx context.Context, summary *Summary, msgID string) (string, error) {
+	msg := &discordMsg{
 		Files: make([]*discordgo.File, 0),
 	}
 
@@ -260,7 +279,20 @@ func (n *DiscordNotifier) send(ctx context.Context, summary *Summary) (string, e
 
 	msg.Components = []discordgo.MessageComponent{row}
 
-	result, err := n.session.ChannelMessageSendComplex(n.channelID, msg, discordgo.WithContext(ctx))
+	if msgID != "" {
+		_, err := n.session.ChannelMessageEditComplex(&discordgo.MessageEdit{
+			Components: &msg.Components,
+			Files:      msg.Files,
+			Embeds:     &msg.Embeds,
+		}, discordgo.WithContext(ctx))
+		return msgID, err
+	}
+
+	result, err := n.session.ChannelMessageSendComplex(n.channelID, &discordgo.MessageSend{
+		Components: msg.Components,
+		Files:      msg.Files,
+		Embeds:     msg.Embeds,
+	}, discordgo.WithContext(ctx))
 	if err != nil {
 		return "", err
 	}

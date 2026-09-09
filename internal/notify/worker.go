@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/emilekm/artifacts-mover/internal/db"
@@ -17,11 +18,16 @@ import (
 
 const (
 	allUploadsWaitTime = 10 * time.Second
+
+	msgIDPrefix = "__reserved-"
 )
 
 type Notifier interface {
-	Notify(ctx context.Context, msgID *string, artifacts types.Round) (string, error)
+	PatchButtons(ctx context.Context, msgID string, round types.Round) error
+	Notify(ctx context.Context, round types.Round) (string, error)
+	NotifyReserved(ctx context.Context, round types.Round, msgID string) error
 	ReserveMessageID(ctx context.Context, timestamp time.Time) (string, error)
+	RemoveMessage(ctx context.Context, msgID string) error
 }
 
 type Worker struct {
@@ -56,22 +62,31 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.SyncNotificationA
 
 	msgID := ""
 	defer func() {
-		if msgID == "" {
-			msgID, err := notifier.ReserveMessageID(ctx, job.Args.Timestamp)
-			if err != nil {
-				w.logger.LogAttrs(
-					ctx, slog.LevelError,
-					"notify: failed to reserver message",
-					applog.Error(err),
-				)
-			}
+		if msgID != "" {
+			return
+		}
 
-			err = w.db.UpdateMessageID(ctx, roundID, msgID)
+		msgID, err := notifier.ReserveMessageID(ctx, job.Args.Timestamp)
+		if err != nil {
+			w.logger.LogAttrs(
+				ctx, slog.LevelError,
+				"notify: failed to reserver message",
+				applog.Error(err),
+			)
+		}
+
+		err = w.db.UpdateMessageID(ctx, roundID, msgIDPrefix+msgID)
+		if err != nil {
+			w.logger.LogAttrs(
+				ctx, slog.LevelError,
+				"notify: update reserved message ID",
+				applog.Error(err),
+			)
+			err = notifier.RemoveMessage(ctx, msgID)
 			if err != nil {
-				// TODO: remove message
 				w.logger.LogAttrs(
 					ctx, slog.LevelError,
-					"notify: update reserved message ID",
+					"notify: remove reserver message",
 					applog.Error(err),
 				)
 			}
@@ -112,9 +127,17 @@ L:
 		}
 	}
 
-	msgID, err = notifier.Notify(ctx, round.DiscordMessageID, round.ArtifactsByType)
-	if err != nil {
-		return err
+	if strings.HasPrefix(msgID, msgIDPrefix) {
+		msgID = strings.TrimPrefix(msgID, msgIDPrefix)
+		err = notifier.NotifyReserved(ctx, round.ArtifactsByType, msgID)
+		if err != nil {
+			return err
+		}
+	} else {
+		msgID, err = notifier.Notify(ctx, round.ArtifactsByType)
+		if err != nil {
+			return err
+		}
 	}
 
 	if round.DiscordMessageID == nil || msgID != *round.DiscordMessageID {

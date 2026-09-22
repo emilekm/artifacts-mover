@@ -175,7 +175,7 @@ func (n *DiscordNotifier) refs(round types.Round) RemoteRefs {
 	bf2Demo := round[types.ArtifactTypeBF2Demo]
 	refs.BF2Demo = Ref{
 		Enabled: bf2Demo.Uploaded,
-		URL:     fmt.Sprintf(n.remoteURLs.BF2Demo, bf2Demo.Path),
+		URL:     fmt.Sprintf(n.remoteURLs.BF2Demo, filepath.Base(bf2Demo.Path)),
 	}
 
 	return refs

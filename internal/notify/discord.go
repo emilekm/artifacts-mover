@@ -2,7 +2,6 @@ package notify
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,14 +12,6 @@ import (
 	"github.com/emilekm/artifacts-mover/internal/config"
 	applog "github.com/emilekm/artifacts-mover/internal/log"
 	"github.com/emilekm/artifacts-mover/internal/types"
-)
-
-const (
-	embedDescriptionFmt = `**_%s, %s_**
-
-Duration: %d minutes
-Started: <t:%d:R> | <t:%d:F>
-Ended: <t:%d:R> | <t:%d:F>`
 )
 
 type discordSession interface {
@@ -90,43 +81,11 @@ func (n *DiscordNotifier) RemoveMessage(ctx context.Context, msgID string) error
 }
 
 func (n *DiscordNotifier) prepareSummary(ctx context.Context, round types.Round) (*Summary, error) {
-	summaryFile, err := os.Open(round[types.ArtifactTypeSummary].Path)
-	if err != nil {
-		return nil, err
-	}
-	defer summaryFile.Close()
+	summary := BuildSummary(ctx, n.logger, round)
+	summary.RemoteRefs = n.refs(round)
 
-	var jsonSummary JSONSummary
-	err = json.NewDecoder(summaryFile).Decode(&jsonSummary)
-	if err != nil {
-		return nil, err
-	}
-
-	summary := Summary{
-		JSONSummary: jsonSummary,
-		PRDemoPath:  round[types.ArtifactTypePRDemo].Path,
-		RemoteRefs:  n.refs(round),
-	}
-
-	if t1, t2, err := extractTickets(summary.PRDemoPath); err != nil {
-		n.logger.LogAttrs(
-			ctx, slog.LevelWarn,
-			"discord_notifier: failed to extract tickets",
-			applog.Path(summary.PRDemoPath),
-			applog.Error(err),
-		)
-	} else {
-		summary.Team1Tickets = int(t1)
-		summary.Team2Tickets = int(t2)
-	}
-
-	prDemo, err := os.Open(summary.PRDemoPath)
-	if err != nil {
-		return nil, err
-	}
-	defer prDemo.Close()
-
-	summary.Image, err = createImage(&summary)
+	var err error
+	summary.Image, err = createImage(summary)
 	if err != nil {
 		n.logger.LogAttrs(
 			ctx, slog.LevelError,
@@ -135,7 +94,7 @@ func (n *DiscordNotifier) prepareSummary(ctx context.Context, round types.Round)
 		)
 	}
 
-	return &summary, nil
+	return summary, nil
 }
 
 func (n *DiscordNotifier) patchButtons(ctx context.Context, msgID string, round types.Round) error {
@@ -231,40 +190,7 @@ func (n *DiscordNotifier) send(ctx context.Context, summary *Summary, msgID stri
 		})
 	}
 
-	timestamp, err := time.Unix(summary.EndTime, 0).MarshalText()
-	if err != nil {
-		n.logger.LogAttrs(
-			ctx, slog.LevelWarn,
-			"discord_notifier: failed to marshal endtime",
-			slog.Int64("end_time", summary.EndTime),
-			applog.Error(err),
-		)
-	}
-
-	mapDetails, ok := levels[summary.MapName]
-	if !ok {
-		mapDetails = level{
-			Name: summary.MapName,
-			Size: 0,
-		}
-	}
-
-	embed := &discordgo.MessageEmbed{
-		Title: fmt.Sprintf("%s (%d km)", mapDetails.Name, mapDetails.Size),
-		Type:  discordgo.EmbedTypeRich,
-		Color: gameModes[summary.MapMode].Color,
-		Description: fmt.Sprintf(
-			embedDescriptionFmt,
-			gameModes[summary.MapMode].Name,
-			layers[summary.MapLayer],
-			(summary.EndTime-summary.StartTime)/60,
-			summary.StartTime,
-			summary.StartTime,
-			summary.EndTime,
-			summary.EndTime,
-		),
-		Timestamp: string(timestamp),
-	}
+	embed := n.buildEmbed(ctx, summary)
 
 	if summary.Image != nil {
 		imageFilename := "summary.png"
@@ -302,4 +228,77 @@ func (n *DiscordNotifier) send(ctx context.Context, summary *Summary, msgID stri
 		return "", err
 	}
 	return result.ID, nil
+}
+
+// buildEmbed renders whatever of the summary is known. MapName/MapMode/
+// MapLayer/StartTime/EndTime may each be nil, so the title, color and
+// description all degrade gracefully instead of assuming they're set.
+func (n *DiscordNotifier) buildEmbed(ctx context.Context, summary *Summary) *discordgo.MessageEmbed {
+	title := "Round summary"
+	var color int
+
+	if summary.MapName != nil {
+		mapDetails, ok := levels[*summary.MapName]
+		if !ok {
+			mapDetails = level{Name: *summary.MapName}
+		}
+		title = fmt.Sprintf("%s (%d km)", mapDetails.Name, mapDetails.Size)
+	}
+	if summary.MapMode != nil {
+		color = gameModes[*summary.MapMode].Color
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       title,
+		Type:        discordgo.EmbedTypeRich,
+		Color:       color,
+		Description: buildDescription(summary),
+	}
+
+	if summary.EndTime != nil {
+		timestamp, err := time.Unix(*summary.EndTime, 0).MarshalText()
+		if err != nil {
+			n.logger.LogAttrs(
+				ctx, slog.LevelWarn,
+				"discord_notifier: failed to marshal endtime",
+				slog.Int64("end_time", *summary.EndTime),
+				applog.Error(err),
+			)
+		} else {
+			embed.Timestamp = string(timestamp)
+		}
+	}
+
+	return embed
+}
+
+func buildDescription(summary *Summary) string {
+	var mode, layer string
+	if summary.MapMode != nil {
+		mode = gameModes[*summary.MapMode].Name
+	}
+	if summary.MapLayer != nil {
+		layer = layers[*summary.MapLayer]
+	}
+
+	header := fmt.Sprintf("**_%s, %s_**", mode, layer)
+
+	switch {
+	case summary.StartTime != nil && summary.EndTime != nil:
+		return fmt.Sprintf(
+			"%s\n\nDuration: %d minutes\nStarted: <t:%d:R> | <t:%d:F>\nEnded: <t:%d:R> | <t:%d:F>",
+			header,
+			(*summary.EndTime-*summary.StartTime)/60,
+			*summary.StartTime, *summary.StartTime,
+			*summary.EndTime, *summary.EndTime,
+		)
+	case summary.StartTime != nil:
+		return fmt.Sprintf(
+			"%s\n\nStarted: <t:%d:R> | <t:%d:F>",
+			header,
+			*summary.StartTime, *summary.StartTime,
+		)
+	default:
+		return header
+	}
 }

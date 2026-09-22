@@ -66,12 +66,14 @@ func createImage(summary *Summary) (io.Reader, error) {
 	layerMode := fmt.Sprintf("%s, %s", details.gameMode.Name, details.layer)
 	dc.DrawStringAnchored(layerMode, 200, 48, 0.5, 0.5)
 
-	if summary.MapMode == gpmGungame {
-		err = drawGGWinner(dc, findGGWinner(summary.Players))
-		if err != nil {
-			return nil, err
+	if summary.MapMode != nil && *summary.MapMode == gpmGungame {
+		if len(summary.Players) > 0 {
+			err = drawGGWinner(dc, findGGWinner(summary.Players))
+			if err != nil {
+				return nil, err
+			}
 		}
-	} else {
+	} else if summary.Team1Name != nil && summary.Team2Name != nil {
 		err = drawTickets(dc, summary)
 		if err != nil {
 			return nil, err
@@ -117,29 +119,31 @@ func findGGWinner(players []Player) string {
 	return winner.Name
 }
 
+// drawTickets assumes Team1Name/Team2Name are known; ticket counts may still
+// be nil, in which case a "?" is drawn instead of the digits.
 func drawTickets(dc *gg.Context, summary *Summary) error {
 	if err := setFont(dc, 34, fontTypeBold); err != nil {
 		return err
 	}
-	dc.DrawStringAnchored(strconv.Itoa(summary.Team2Tickets), 161, 62, 0.5, 1)
-	dc.DrawStringAnchored(strconv.Itoa(summary.Team1Tickets), 239, 62, 0.5, 1)
+	dc.DrawStringAnchored(ticketString(summary.Team2Tickets), 161, 62, 0.5, 1)
+	dc.DrawStringAnchored(ticketString(summary.Team1Tickets), 239, 62, 0.5, 1)
 
 	// Team 1 flag
-	flag1Img, err := loadImage(strings.ToLower(summary.Team1Name) + ".png")
+	flag1Img, err := loadImage(strings.ToLower(*summary.Team1Name) + ".png")
 	if err != nil {
 		flag1Img, _ = loadImage("Blank.png")
 	}
 
 	drawScaledImage(dc, flag1Img, 280, 70, flagWidth, flagHeight)
 
-	flag2Img, err := loadImage(strings.ToLower(summary.Team2Name) + ".png")
+	flag2Img, err := loadImage(strings.ToLower(*summary.Team2Name) + ".png")
 	if err != nil {
 		flag2Img, _ = loadImage("Blank.png")
 	}
 
 	drawScaledImage(dc, flag2Img, 71, 70, flagWidth, flagHeight)
 
-	if summary.MapMode == gpmInsurgency {
+	if summary.MapMode != nil && *summary.MapMode == gpmInsurgency {
 		cacheImg, err := loadImage("Cache.png")
 		if err != nil {
 			return err
@@ -149,6 +153,13 @@ func drawTickets(dc *gg.Context, summary *Summary) error {
 	}
 
 	return nil
+}
+
+func ticketString(t *int) string {
+	if t == nil {
+		return "?"
+	}
+	return strconv.Itoa(*t)
 }
 
 func loadImage(filename string) (image.Image, error) {
@@ -190,22 +201,34 @@ type mapDetails struct {
 }
 
 func findMapDetails(summary *Summary) (mapDetails, bool) {
+	if summary.MapName == nil {
+		return mapDetails{}, false
+	}
+
 	found := true
 
-	m, ok := levels[summary.MapName]
+	m, ok := levels[*summary.MapName]
 	if !ok {
 		found = false
-		m.Name = summary.MapName
+		m.Name = *summary.MapName
 	}
 
-	gm, ok := gameModes[summary.MapMode]
-	if !ok {
-		gm.Name = summary.MapMode
+	var gm gameMode
+	if summary.MapMode != nil {
+		if g, ok := gameModes[*summary.MapMode]; ok {
+			gm = g
+		} else {
+			gm.Name = *summary.MapMode
+		}
 	}
 
-	l, ok := layers[summary.MapLayer]
-	if !ok {
-		l = strconv.Itoa(summary.MapLayer)
+	var l string
+	if summary.MapLayer != nil {
+		if lv, ok := layers[*summary.MapLayer]; ok {
+			l = lv
+		} else {
+			l = strconv.Itoa(*summary.MapLayer)
+		}
 	}
 
 	return mapDetails{

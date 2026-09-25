@@ -36,8 +36,9 @@ func buildSummary(t *testing.T, round types.Round) *Summary {
 }
 
 // TestBuildSummary_JSONAndPRDemo covers the common case: both a JSON summary
-// and a readable prdemo are present. The prdemo's ticket counts must win over
-// the JSON summary's, everything else should agree between the two sources.
+// and a readable prdemo are present. Where the prdemo has ticket data for a
+// team, it must win over the (swap-corrected) JSON summary's; everything
+// else should agree between the two sources.
 func TestBuildSummary_JSONAndPRDemo(t *testing.T) {
 	round := newRound(
 		types.NewArtifact(realJSONPath, types.ArtifactTypeSummary),
@@ -51,11 +52,13 @@ func TestBuildSummary_JSONAndPRDemo(t *testing.T) {
 	assert.Equal(t, 16, s.MapLayer)
 	assert.Equal(t, "MEInsurgent", s.Team1Name)
 	assert.Equal(t, "US", s.Team2Name)
-	// This fixture only carries TicketsTeam2Type updates, so only
-	// Team2Tickets gets overridden by the prdemo (to 432); Team1Tickets has
-	// no prdemo data and falls back to the JSON summary's value (432).
-	assert.Equal(t, 432, s.Team1Tickets, "JSON value; prdemo has no TicketsTeam1Type data")
-	assert.Equal(t, 432, s.Team2Tickets, "prdemo value, overriding JSON's 0")
+	// The JSON file's raw Team1Tickets/Team2Tickets (432/0) are swapped by
+	// sourceJSONFile to correct the tracker's ticketsBlu/ticketsOp mixup, so
+	// Team1(ME)=0. The prdemo's only live data is a TicketsTeam2Type stream
+	// ending at 432, correctly attributed to Team2 (US), overriding JSON's
+	// (already-corrected) 432.
+	assert.Equal(t, 0, s.Team1Tickets, "swap-corrected JSON value; no prdemo data for this team")
+	assert.Equal(t, 432, s.Team2Tickets, "prdemo value, agreeing with the swap-corrected JSON value")
 	require.NotNil(t, s.StartTime)
 	assert.EqualValues(t, 1786600608, *s.StartTime)
 	// EndTime came from the JSON summary and must not be recomputed from
@@ -68,7 +71,8 @@ func TestBuildSummary_JSONAndPRDemo(t *testing.T) {
 }
 
 // TestBuildSummary_JSONOnly covers a round with no prdemo at all: every field
-// must come straight from the JSON summary, unmodified.
+// must come straight from the JSON summary, except the tickets, which are
+// swapped to correct the tracker's ticketsBlu/ticketsOp mixup.
 func TestBuildSummary_JSONOnly(t *testing.T) {
 	round := newRound(types.NewArtifact(realJSONPath, types.ArtifactTypeSummary))
 
@@ -77,8 +81,11 @@ func TestBuildSummary_JSONOnly(t *testing.T) {
 	assert.Equal(t, "fallujah_west", s.MapName)
 	assert.Equal(t, "gpm_insurgency", s.MapMode)
 	assert.Equal(t, 16, s.MapLayer)
-	assert.Equal(t, 432, s.Team1Tickets, "unmodified JSON value")
-	assert.Equal(t, 0, s.Team2Tickets, "unmodified JSON value")
+	// The raw JSON file says Team1Tickets=432, Team2Tickets=0; swapped here
+	// since the tracker's JSON output has them backwards relative to
+	// Team1Name/Team2Name.
+	assert.Equal(t, 0, s.Team1Tickets, "swap-corrected JSON value")
+	assert.Equal(t, 432, s.Team2Tickets, "swap-corrected JSON value")
 	require.NotNil(t, s.StartTime)
 	assert.EqualValues(t, 1786600608, *s.StartTime)
 	require.NotNil(t, s.EndTime)
@@ -102,8 +109,9 @@ func TestBuildSummary_PRDemoOnly(t *testing.T) {
 	assert.Equal(t, 16, s.MapLayer)
 	assert.Equal(t, "MEInsurgent", s.Team1Name)
 	assert.Equal(t, "US", s.Team2Name)
-	// This fixture only carries TicketsTeam2Type updates; Team1Tickets has
-	// no source at all here and stays at its zero value.
+	// This fixture only carries TicketsTeam2Type updates on the wire, and
+	// those are already correctly paired with Team2 (US); Team1Tickets has
+	// no data at all here and stays zero.
 	assert.Equal(t, 0, s.Team1Tickets)
 	assert.Equal(t, 432, s.Team2Tickets)
 	require.NotNil(t, s.StartTime)

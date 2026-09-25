@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/bwmarrin/discordgo v0.29.0
-	github.com/emilekm/go-prbf2 v0.0.0-20251211144904-8368b37fb63f
+	github.com/emilekm/go-prbf2 v0.0.0-20260925170124-9b17c075a41a
 	github.com/fogleman/gg v1.3.0
 	github.com/fsnotify/fsnotify v1.8.0
 	github.com/goccy/go-yaml v1.15.23

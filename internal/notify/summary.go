@@ -69,7 +69,7 @@ func BuildSummary(ctx context.Context, logger *slog.Logger, round types.Round) *
 	sourceJSONFile(ctx, logger, round, s)
 	sourcePRDemoContent(ctx, logger, round, s)
 	sourcePRDemoFilename(round, s)
-	sourceBF2DemoFilename(round, s)
+	sourceBF2DemoFilename(ctx, logger, round, s)
 
 	return s
 }

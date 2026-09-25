@@ -23,8 +23,8 @@ type JSONSummary struct {
 	Team2Name    string   `json:"Team2Name"`
 	Team1Tickets int      `json:"Team1Tickets"`
 	Team2Tickets int      `json:"Team2Tickets"`
-	StartTime    int64    `json:"StartTime"`
-	EndTime      int64    `json:"EndTime"`
+	StartTime    *int64   `json:"StartTime,omitempty"`
+	EndTime      *int64   `json:"EndTime,omitempty"`
 	Players      []Player `json:"Players"`
 }
 
@@ -42,27 +42,20 @@ type RemoteRefs struct {
 // Summary is the reconstructed round summary used for rendering. A field is
 // nil when no source was able to determine it.
 type Summary struct {
-	MapName      *string
-	MapMode      *string
-	MapLayer     *int
-	Team1Name    *string
-	Team2Name    *string
-	Team1Tickets *int
-	Team2Tickets *int
-	StartTime    *int64
-	EndTime      *int64
-	Players      []Player
+	JSONSummary
 
-	PRDemoPath string
+	PRDemoName string
+	PRDemo     io.Reader
 	Image      io.Reader
 	RemoteRefs RemoteRefs
 }
 
-// setIfNil assigns v to *dst if it isn't already set, so a source never
+// setIfZero assigns v to *dst if it isn't already set, so a source never
 // overrides a value an earlier, more trusted source already provided.
-func setIfNil[T any](dst **T, v T) {
-	if *dst == nil {
-		*dst = &v
+func setIfZero[T comparable](dst *T, v T) {
+	var zero T
+	if dst == nil || *dst == zero {
+		*dst = v
 	}
 }
 
@@ -71,14 +64,11 @@ func setIfNil[T any](dst **T, v T) {
 // whatever gaps are left; a round with no JSON summary and no readable prdemo
 // content still yields a (mostly empty) Summary rather than an error.
 func BuildSummary(ctx context.Context, logger *slog.Logger, round types.Round) *Summary {
-	s := &Summary{
-		PRDemoPath: round[types.ArtifactTypePRDemo].Path,
-	}
+	s := &Summary{}
 
 	sourceJSONFile(ctx, logger, round, s)
-	sourcePRDemoContent(ctx, logger, s)
+	sourcePRDemoContent(ctx, logger, round, s)
 	sourcePRDemoFilename(round, s)
-	sourceTeamNameTable(s)
 	sourceBF2DemoFilename(round, s)
 
 	return s

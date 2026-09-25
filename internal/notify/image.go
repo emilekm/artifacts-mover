@@ -66,14 +66,14 @@ func createImage(summary *Summary) (io.Reader, error) {
 	layerMode := fmt.Sprintf("%s, %s", details.gameMode.Name, details.layer)
 	dc.DrawStringAnchored(layerMode, 200, 48, 0.5, 0.5)
 
-	if summary.MapMode != nil && *summary.MapMode == gpmGungame {
+	if summary.MapMode == gpmGungame {
 		if len(summary.Players) > 0 {
 			err = drawGGWinner(dc, findGGWinner(summary.Players))
 			if err != nil {
 				return nil, err
 			}
 		}
-	} else if summary.Team1Name != nil && summary.Team2Name != nil {
+	} else if summary.Team1Name != "" && summary.Team2Name != "" {
 		err = drawTickets(dc, summary)
 		if err != nil {
 			return nil, err
@@ -129,21 +129,21 @@ func drawTickets(dc *gg.Context, summary *Summary) error {
 	dc.DrawStringAnchored(ticketString(summary.Team1Tickets), 239, 62, 0.5, 1)
 
 	// Team 1 flag
-	flag1Img, err := loadImage(strings.ToLower(*summary.Team1Name) + ".png")
+	flag1Img, err := loadImage(strings.ToLower(summary.Team1Name) + ".png")
 	if err != nil {
 		flag1Img, _ = loadImage("Blank.png")
 	}
 
 	drawScaledImage(dc, flag1Img, 280, 70, flagWidth, flagHeight)
 
-	flag2Img, err := loadImage(strings.ToLower(*summary.Team2Name) + ".png")
+	flag2Img, err := loadImage(strings.ToLower(summary.Team2Name) + ".png")
 	if err != nil {
 		flag2Img, _ = loadImage("Blank.png")
 	}
 
 	drawScaledImage(dc, flag2Img, 71, 70, flagWidth, flagHeight)
 
-	if summary.MapMode != nil && *summary.MapMode == gpmInsurgency {
+	if summary.MapMode == gpmInsurgency {
 		cacheImg, err := loadImage("Cache.png")
 		if err != nil {
 			return err
@@ -155,11 +155,8 @@ func drawTickets(dc *gg.Context, summary *Summary) error {
 	return nil
 }
 
-func ticketString(t *int) string {
-	if t == nil {
-		return "?"
-	}
-	return strconv.Itoa(*t)
+func ticketString(t int) string {
+	return strconv.Itoa(t)
 }
 
 func loadImage(filename string) (image.Image, error) {
@@ -201,34 +198,26 @@ type mapDetails struct {
 }
 
 func findMapDetails(summary *Summary) (mapDetails, bool) {
-	if summary.MapName == nil {
-		return mapDetails{}, false
-	}
-
 	found := true
 
-	m, ok := levels[*summary.MapName]
+	m, ok := levels[summary.MapName]
 	if !ok {
 		found = false
-		m.Name = *summary.MapName
+		m.Name = summary.MapName
 	}
 
 	var gm gameMode
-	if summary.MapMode != nil {
-		if g, ok := gameModes[*summary.MapMode]; ok {
-			gm = g
-		} else {
-			gm.Name = *summary.MapMode
-		}
+	if g, ok := gameModes[summary.MapMode]; ok {
+		gm = g
+	} else {
+		gm.Name = summary.MapMode
 	}
 
 	var l string
-	if summary.MapLayer != nil {
-		if lv, ok := layers[*summary.MapLayer]; ok {
-			l = lv
-		} else {
-			l = strconv.Itoa(*summary.MapLayer)
-		}
+	if lv, ok := layers[summary.MapLayer]; ok {
+		l = lv
+	} else {
+		l = strconv.Itoa(summary.MapLayer)
 	}
 
 	return mapDetails{

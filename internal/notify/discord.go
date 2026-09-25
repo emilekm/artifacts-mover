@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -178,15 +177,10 @@ func (n *DiscordNotifier) send(ctx context.Context, summary *Summary, msgID stri
 
 	row := linkButtons(summary.RemoteRefs)
 
-	if summary.PRDemoPath != "" {
-		prDemoFile, err := os.Open(summary.PRDemoPath)
-		if err != nil {
-			return "", err
-		}
-		defer prDemoFile.Close()
+	if summary.PRDemo != nil {
 		msg.Files = append(msg.Files, &discordgo.File{
-			Name:   filepath.Base(summary.PRDemoPath),
-			Reader: prDemoFile,
+			Name:   summary.PRDemoName,
+			Reader: summary.PRDemo,
 		})
 	}
 
@@ -237,16 +231,12 @@ func (n *DiscordNotifier) buildEmbed(ctx context.Context, summary *Summary) *dis
 	title := "Round summary"
 	var color int
 
-	if summary.MapName != nil {
-		mapDetails, ok := levels[*summary.MapName]
-		if !ok {
-			mapDetails = level{Name: *summary.MapName}
-		}
-		title = fmt.Sprintf("%s (%d km)", mapDetails.Name, mapDetails.Size)
+	mapDetails, ok := levels[summary.MapName]
+	if !ok {
+		mapDetails = level{Name: summary.MapName}
 	}
-	if summary.MapMode != nil {
-		color = gameModes[*summary.MapMode].Color
-	}
+	title = fmt.Sprintf("%s (%d km)", mapDetails.Name, mapDetails.Size)
+	color = gameModes[summary.MapMode].Color
 
 	embed := &discordgo.MessageEmbed{
 		Title:       title,
@@ -274,12 +264,8 @@ func (n *DiscordNotifier) buildEmbed(ctx context.Context, summary *Summary) *dis
 
 func buildDescription(summary *Summary) string {
 	var mode, layer string
-	if summary.MapMode != nil {
-		mode = gameModes[*summary.MapMode].Name
-	}
-	if summary.MapLayer != nil {
-		layer = layers[*summary.MapLayer]
-	}
+	mode = gameModes[summary.MapMode].Name
+	layer = layers[summary.MapLayer]
 
 	header := fmt.Sprintf("**_%s, %s_**", mode, layer)
 

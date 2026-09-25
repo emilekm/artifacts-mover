@@ -1,8 +1,11 @@
 package notify
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -42,8 +45,7 @@ func sourceJSONFile(ctx context.Context, logger *slog.Logger, round types.Round,
 	}
 	defer file.Close()
 
-	var js JSONSummary
-	if err := json.NewDecoder(file).Decode(&js); err != nil {
+	if err := json.NewDecoder(file).Decode(&s.JSONSummary); err != nil {
 		logger.LogAttrs(
 			ctx, slog.LevelWarn,
 			"summary: failed to decode json summary",
@@ -52,19 +54,6 @@ func sourceJSONFile(ctx context.Context, logger *slog.Logger, round types.Round,
 		)
 		return
 	}
-
-	setIfNil(&s.MapName, js.MapName)
-	setIfNil(&s.MapMode, js.MapMode)
-	setIfNil(&s.MapLayer, js.MapLayer)
-	setIfNil(&s.Team1Name, js.Team1Name)
-	setIfNil(&s.Team2Name, js.Team2Name)
-	setIfNil(&s.Team1Tickets, js.Team1Tickets)
-	setIfNil(&s.Team2Tickets, js.Team2Tickets)
-	setIfNil(&s.StartTime, js.StartTime)
-	setIfNil(&s.EndTime, js.EndTime)
-	if len(js.Players) > 0 {
-		s.Players = js.Players
-	}
 }
 
 // sourcePRDemoContent walks the prdemo file once, reconstructing whatever the
@@ -72,13 +61,32 @@ func sourceJSONFile(ctx context.Context, logger *slog.Logger, round types.Round,
 // overriding the ticket counts with the ones recorded immediately before
 // RoundEnd (the JSON summary's tickets are unreliable). EndTime is derived by
 // summing tick deltas from StartTime, but only if it's still unknown.
-func sourcePRDemoContent(ctx context.Context, logger *slog.Logger, s *Summary) {
-	demo, err := prdemo.NewDemoReaderFromFile(s.PRDemoPath)
+func sourcePRDemoContent(ctx context.Context, logger *slog.Logger, round types.Round, s *Summary) {
+	artifact, ok := round[types.ArtifactTypePRDemo]
+	if !ok {
+		return
+	}
+
+	demoBuffer, err := os.ReadFile(artifact.Path)
+	if err != nil {
+		logger.LogAttrs(
+			ctx, slog.LevelWarn,
+			"summary: failed to read prdemo file",
+			applog.Path(artifact.Path),
+			applog.Error(err),
+		)
+		return
+	}
+
+	s.PRDemo = bytes.NewReader(demoBuffer)
+	s.PRDemoName = filepath.Base(artifact.Path)
+
+	demo, err := openDemo(bytes.NewReader(demoBuffer))
 	if err != nil {
 		logger.LogAttrs(
 			ctx, slog.LevelWarn,
 			"summary: failed to open prdemo",
-			applog.Path(s.PRDemoPath),
+			applog.Path(artifact.Path),
 			applog.Error(err),
 		)
 		return
@@ -97,7 +105,7 @@ loop:
 			logger.LogAttrs(
 				ctx, slog.LevelWarn,
 				"summary: failed to read prdemo message",
-				applog.Path(s.PRDemoPath),
+				applog.Path(artifact.Path),
 				applog.Error(err),
 			)
 			break
@@ -109,13 +117,14 @@ loop:
 			if err := msg.Decode(&d); err != nil {
 				continue
 			}
-			setIfNil(&s.MapName, d.Map.Name)
-			setIfNil(&s.MapMode, d.Map.Gamemode)
-			setIfNil(&s.MapLayer, int(d.Map.Layer))
-			setIfNil(&s.Team1Name, d.BluforTeam)
-			setIfNil(&s.Team2Name, d.OpforTeam)
+			setIfZero(&s.MapName, d.Map.Name)
+			setIfZero(&s.MapMode, d.Map.Gamemode)
+			setIfZero(&s.MapLayer, int(d.Map.Layer))
+			setIfZero(&s.Team1Name, d.BluforTeam)
+			setIfZero(&s.Team2Name, d.OpforTeam)
 			startTime = int64(d.StartTime)
-			setIfNil(&s.StartTime, startTime)
+			st := startTime
+			setIfZero(&s.StartTime, &st)
 		case prdemo.TicketsTeam1Type, prdemo.TicketsTeam2Type:
 			var t prdemo.Tickets
 			if err := msg.Decode(&t); err != nil {
@@ -124,6 +133,10 @@ loop:
 			if t.Tickets < 0 {
 				t.Tickets = 0
 			}
+			// The tracker script that produces these prdemos swaps which
+			// team's tickets it tags as TicketsTeam1Type/TicketsTeam2Type
+			// relative to BluforTeam/OpforTeam (Team1Name/Team2Name) above,
+			// so the mapping here is intentionally inverted.
 			switch msg.Type {
 			case prdemo.TicketsTeam1Type:
 				team1 = int(t.Tickets)
@@ -147,10 +160,16 @@ loop:
 	}
 
 	if haveTeam1 {
-		s.Team1Tickets = &team1
+		if team1 < 0 {
+			team1 = 0
+		}
+		s.Team1Tickets = team1
 	}
 	if haveTeam2 {
-		s.Team2Tickets = &team2
+		if team2 < 0 {
+			team2 = 0
+		}
+		s.Team2Tickets = team2
 	}
 
 	if computeEndTime && startTime > 0 {
@@ -163,11 +182,14 @@ loop:
 // filename, and StartTime from its filename timestamp - both readable even
 // when the prdemo's content is corrupt or unreadable.
 func sourcePRDemoFilename(round types.Round, s *Summary) {
-	artifact := round[types.ArtifactTypePRDemo]
+	artifact, ok := round[types.ArtifactTypePRDemo]
+	if !ok {
+		return
+	}
 
 	if !artifact.Timestamp.IsZero() {
 		startTime := artifact.Timestamp.Unix()
-		setIfNil(&s.StartTime, startTime)
+		setIfZero(&s.StartTime, &startTime)
 	}
 
 	m := prDemoFilenameRe.FindStringSubmatch(filepath.Base(artifact.Path))
@@ -175,10 +197,10 @@ func sourcePRDemoFilename(round types.Round, s *Summary) {
 		return
 	}
 
-	setIfNil(&s.MapName, m[1])
-	setIfNil(&s.MapMode, m[2])
+	setIfZero(&s.MapName, m[1])
+	setIfZero(&s.MapMode, m[2])
 	if layer, err := strconv.Atoi(m[3]); err == nil {
-		setIfNil(&s.MapLayer, layer)
+		setIfZero(&s.MapLayer, layer)
 	}
 }
 
@@ -191,5 +213,20 @@ func sourceBF2DemoFilename(round types.Round, s *Summary) {
 	}
 
 	startTime := artifact.Timestamp.Unix()
-	setIfNil(&s.StartTime, startTime)
+	setIfZero(&s.StartTime, &startTime)
+}
+
+func openDemo(reader io.Reader) (prdemo.DemoReader, error) {
+	zReader, err := zlib.NewReader(reader)
+	if err != nil {
+		return nil, err
+	}
+	defer zReader.Close()
+
+	buf, err := io.ReadAll(zReader)
+	if err != nil {
+		return nil, err
+	}
+
+	return prdemo.NewDemoReader(bytes.NewReader(buf))
 }

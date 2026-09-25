@@ -16,6 +16,7 @@ const (
 	realPRDemoPath    = "testdata/tracker_2026_08_13_05_56_48_fallujah_west_gpm_insurgency_16.PRdemo"
 	corruptPRDemoPath = "testdata/corrupt_2026_08_13_05_56_48_fallujah_west_gpm_insurgency_16.PRdemo"
 	malformedJSONPath = "testdata/malformed_summary.json"
+	realBF2DemoPath   = "testdata/auto_2026_08_13_06_00_48.bf2demo"
 )
 
 func discardLogger() *slog.Logger {
@@ -52,13 +53,13 @@ func TestBuildSummary_JSONAndPRDemo(t *testing.T) {
 	assert.Equal(t, 16, s.MapLayer)
 	assert.Equal(t, "MEInsurgent", s.Team1Name)
 	assert.Equal(t, "US", s.Team2Name)
-	// The JSON file's raw Team1Tickets/Team2Tickets (432/0) are swapped by
-	// sourceJSONFile to correct the tracker's ticketsBlu/ticketsOp mixup, so
-	// Team1(ME)=0. The prdemo's only live data is a TicketsTeam2Type stream
-	// ending at 432, correctly attributed to Team2 (US), overriding JSON's
-	// (already-corrected) 432.
-	assert.Equal(t, 0, s.Team1Tickets, "swap-corrected JSON value; no prdemo data for this team")
-	assert.Equal(t, 432, s.Team2Tickets, "prdemo value, agreeing with the swap-corrected JSON value")
+	// The prdemo's ServerDetails message carries its own Team1/Team2 ticket
+	// snapshot (3/450) and unconditionally overrides whatever sourceJSONFile
+	// produced. Team1 has no further live TicketsTeam1Type updates on the
+	// wire, so it stays at that snapshot value; Team2 is then overridden
+	// again by its TicketsTeam2Type stream, ending at 432.
+	assert.Equal(t, 3, s.Team1Tickets, "prdemo ServerDetails snapshot; no live updates for this team")
+	assert.Equal(t, 432, s.Team2Tickets, "prdemo value, overriding both JSON and the ServerDetails snapshot")
 	require.NotNil(t, s.StartTime)
 	assert.EqualValues(t, 1786600608, *s.StartTime)
 	// EndTime came from the JSON summary and must not be recomputed from
@@ -109,10 +110,11 @@ func TestBuildSummary_PRDemoOnly(t *testing.T) {
 	assert.Equal(t, 16, s.MapLayer)
 	assert.Equal(t, "MEInsurgent", s.Team1Name)
 	assert.Equal(t, "US", s.Team2Name)
-	// This fixture only carries TicketsTeam2Type updates on the wire, and
-	// those are already correctly paired with Team2 (US); Team1Tickets has
-	// no data at all here and stays zero.
-	assert.Equal(t, 0, s.Team1Tickets)
+	// ServerDetails supplies the initial Team1/Team2 ticket snapshot (3/450).
+	// This fixture only carries further TicketsTeam2Type updates on the
+	// wire, so Team1Tickets stays at the ServerDetails snapshot while
+	// Team2Tickets is overridden down to 432.
+	assert.Equal(t, 3, s.Team1Tickets)
 	assert.Equal(t, 432, s.Team2Tickets)
 	require.NotNil(t, s.StartTime)
 	assert.EqualValues(t, 1786600608, *s.StartTime)
@@ -167,8 +169,9 @@ func TestBuildSummary_PRDemoMissingFile(t *testing.T) {
 	assert.Empty(t, s.PRDemoName, "file was never read")
 }
 
-// TestBuildSummary_BF2DemoOnly covers the last-resort source: only a
-// bf2demo artifact is present, so only StartTime can be recovered.
+// TestBuildSummary_BF2DemoOnly covers the last-resort source when the
+// bf2demo file itself can't be read: only StartTime, from the filename,
+// can be recovered.
 func TestBuildSummary_BF2DemoOnly(t *testing.T) {
 	const path = "does/not/matter/auto_2026_08_13_06_00_48.bf2demo"
 	round := newRound(types.NewArtifact(path, types.ArtifactTypeBF2Demo))
@@ -181,6 +184,24 @@ func TestBuildSummary_BF2DemoOnly(t *testing.T) {
 	assert.Empty(t, s.MapName)
 	assert.Empty(t, s.MapMode)
 	assert.Zero(t, s.MapLayer)
+	assert.Nil(t, s.EndTime)
+	assert.Nil(t, s.PRDemo)
+}
+
+// TestBuildSummary_BF2DemoContent covers the last-resort source when the
+// bf2demo file is readable: MapName is decoded from its metadata, in
+// addition to StartTime from the filename.
+func TestBuildSummary_BF2DemoContent(t *testing.T) {
+	round := newRound(types.NewArtifact(realBF2DemoPath, types.ArtifactTypeBF2Demo))
+
+	s := buildSummary(t, round)
+
+	wantStart := types.NewArtifact(realBF2DemoPath, types.ArtifactTypeBF2Demo).Timestamp.Unix()
+	require.NotNil(t, s.StartTime)
+	assert.EqualValues(t, wantStart, *s.StartTime)
+	assert.Equal(t, "fallujah_west", s.MapName, "decoded from bf2demo metadata")
+	assert.Empty(t, s.MapMode, "not carried by bf2demo metadata")
+	assert.Zero(t, s.MapLayer, "not carried by bf2demo metadata")
 	assert.Nil(t, s.EndTime)
 	assert.Nil(t, s.PRDemo)
 }
